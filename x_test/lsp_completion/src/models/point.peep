@@ -3,12 +3,12 @@ struct Point {
     Y: i32
 }
 
-    fn (self: &Point) Sum() -> i32 {
-        return self.X + self.Y;
-    }
+fn (self: &Point) Sum() -> i32 {
+    return self.X + self.Y;
+}
 
 fn NewPoint() -> Point {
-    return .Point{ X = 0, Y = 0 };
+    return Point.{ X = 0, Y = 0 };
 }
 
 fn PointSum(point: &Point) -> i32 {

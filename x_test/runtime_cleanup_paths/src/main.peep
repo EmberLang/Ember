@@ -9,7 +9,7 @@ enum Carrier {
 }
 
 fn MakeBox() -> Box {
-    return .Box{ value = 7, ptr = alloc(0) };
+    return Box.{ value = 7, ptr = alloc(0) };
 }
 
 // A projection out of a temporary: the base is owned by nobody, so its cleanup
@@ -29,13 +29,13 @@ fn ReplaceOwned() {
 // A value produced and thrown away dies where it is produced.
 fn DiscardTemporary() {
     alloc(0);
-    .Box{ value = 0, ptr = alloc(0) };
+    Box.{ value = 0, ptr = alloc(0) };
     println("discard");
 }
 
 // An owned value inside an aggregate is destroyed with it.
 fn NestedOwned() {
-    let box = .Box{ value = 1, ptr = alloc(0) };
+    let box = Box.{ value = 1, ptr = alloc(0) };
     println("nested");
 }
 

@@ -8,7 +8,7 @@ fn (self: &Point) sum() -> i32 {
 }
 
 fn main() -> i32 {
-    let p: Point = .Point{ x = 10, y = 20 };
+    let p: Point = Point.{ x = 10, y = 20 };
     if p.sum() == 30 {
         let ok: cstr = c"struct ok\n";
         write(stdout, ok, 10);

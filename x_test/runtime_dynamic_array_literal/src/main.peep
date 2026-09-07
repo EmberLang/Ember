@@ -6,14 +6,14 @@ struct Empty {
 }
 
 fn make_points() -> []Point {
-    let first = .Point{x = 10};
-    let second = .Point{x = 20};
+    let first = Point.{x = 10};
+    let second = Point.{x = 20};
     return []Point{first, second};
 }
 
 fn main() -> i32 {
     []i32{};
-    []Empty{.Empty{}};
+    []Empty{Empty.{}};
     let mut values = []i32{1, 2, 3};
     values[1] = 9;
     if values[1] != 9 {

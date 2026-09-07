@@ -194,7 +194,7 @@ so its value is `.{...}` and normal struct field validation applies. Payloadless
 variants forbid `with`. A variant is a case of its nominal enum, never a type,
 struct, function, or callable constructor. `.Ok`,
 `.Ok{...}`, `Result::Ok{...}`, `Result::Ok(...)`, and a variant in type position
-are invalid. Existing struct literals remain `.Point{...}` or `.{...}`;
+are invalid. Named struct literals use `Point.{...}`; anonymous literals use `.{...}`;
 `Point{...}` is not struct syntax.
 
 `value is Result<i32>::Ok` is a nonconsuming nominal case-membership test.

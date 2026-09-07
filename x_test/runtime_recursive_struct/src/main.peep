@@ -4,7 +4,7 @@ struct Node {
 }
 
 fn main() -> i32 {
-    let node = alloc(.Node{
+    let node = alloc(Node.{
         value = 42,
         next = none
     });

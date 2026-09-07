@@ -42,7 +42,7 @@ fn main() -> i32 {
         return 4;
     }
 
-    let mut holder = .Holder{tokens = [_]Token{.{value = 5}}};
+    let mut holder = Holder.{tokens = [_]Token{.{value = 5}}};
     Write(&mut holder.tokens[0], 11);
     if holder.tokens[0].value != 11 {
         return 5;

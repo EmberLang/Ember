@@ -2,4 +2,4 @@ struct Token {
     value: i32
 }
 
-const Global = .Token{ value = 1 };
+const Global = Token.{ value = 1 };

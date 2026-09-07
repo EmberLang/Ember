@@ -542,7 +542,7 @@ const Global = make();`)
 
 func TestMoveOnlyModuleBindingWithoutDropRejected(t *testing.T) {
 	result := checkOwnershipSource(t, `struct Token { value: i32 }
-const Global = .Token{ value = 1 };`)
+const Global = Token.{ value = 1 };`)
 	if !hasOwnershipCode(result, diagnostics.ErrInvalidAssignment) ||
 		!strings.Contains(result.EmitAllToString(), "ownership-tracked module bindings are not supported") {
 		t.Fatalf("expected move-only global diagnostic, got:\n%s", result.EmitAllToString())
@@ -701,7 +701,7 @@ fn valid(mut value: ?Token) {
 		return;
 	}
 	Consume(value);
-	value = .Token{value = 2};
+	value = Token.{value = 2};
 	if value == none {
 		return;
 	}
@@ -1981,7 +1981,7 @@ func TestDynamicArrayAppendConsumesCompositeElement(t *testing.T) {
 	diag := checkOwnershipSource(t, `struct Point { x: i32 }
 fn consume(point: Point) {}
 fn main() {
-	let point = .Point{x = 1};
+	let point = Point.{x = 1};
 	let mut values = []Point{};
 	values |> append(point);
 	consume(point);

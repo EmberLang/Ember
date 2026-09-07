@@ -191,7 +191,7 @@ fn probe(matrix: [2][2]i32) -> i32 { return matrix[first()][second()]; }`,
 			name: "temporary receiver",
 			source: `struct Cell { value: i32 }
 fn (cell: &Cell) take() -> i32 { return cell.value; }
-fn make() -> Cell { return .Cell{value = 1}; }
+fn make() -> Cell { return Cell.{value = 1}; }
 fn probe() -> i32 { return make().take(); }`,
 			want: []string{"call", "call", "use make", "end", "borrow temporary", "end"},
 		},

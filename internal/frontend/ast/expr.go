@@ -279,11 +279,10 @@ func (e *StructLit) exprText() string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteByte('.')
 	if e.Type != nil {
 		b.WriteString(TypeText(e.Type))
 	}
-	b.WriteByte('{')
+	b.WriteString(".{")
 	for i, field := range e.Fields {
 		if i > 0 {
 			b.WriteString(", ")

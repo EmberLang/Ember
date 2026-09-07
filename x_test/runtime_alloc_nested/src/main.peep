@@ -4,7 +4,7 @@ struct Box {
 
 fn main() -> i32 {
     let child = alloc(42);
-    let parent: *Box = alloc(.Box{ value = child });
+    let parent: *Box = alloc(Box.{ value = child });
     free(parent);
     return 0;
 }

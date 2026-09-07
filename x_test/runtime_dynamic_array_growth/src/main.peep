@@ -34,8 +34,8 @@ fn main() -> i32 {
         return 4;
     }
 
-    let first = .Point{x = 10};
-    let second = .Point{x = 20};
+    let first = Point.{x = 10};
+    let second = Point.{x = 20};
     let mut points = []Point{};
     points |> append(first);
     points |> append(second);

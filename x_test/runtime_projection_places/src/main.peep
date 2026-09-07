@@ -29,7 +29,7 @@ fn write(cell: &mut Cell, value: i32) {
 }
 
 fn main() -> i32 {
-    let mut board = .Board{row = .{
+    let mut board = Board.{row = .{
         fixed = [_]Cell{.{value = 1}, .{value = 2}},
         dynamic = []Cell{.{value = 3}, .{value = 4}}
     }};

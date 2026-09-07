@@ -1,0 +1,10 @@
+enum State {
+    Ready,
+    Waiting
+}
+
+fn main() {
+    let scalar = i32.{};
+    let enumeration = State.{};
+    let variant = State::Ready.{};
+}

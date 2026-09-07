@@ -28,7 +28,7 @@ fn Take(box: Box) -> i32 { return box.value; }
 fn Read(v: i32) -> i32 { return v; }
 fn Borrow(b: &Box) -> i32 { return b.value; }
 fn main() -> i32 {
-	let stack = .Box { value = 1 };
+	let stack = Box. { value = 1 };
 	let copied = Read(5);
 	let borrowed = Borrow(&stack);
 	let moved = Take(stack);
@@ -155,7 +155,7 @@ enum Resource {
 	Free,
 }
 fn main() -> i32 {
-	let resource = Resource::Owned with .{ box = .Box { value = 1 } };
+	let resource = Resource::Owned with .{ box = Box. { value = 1 } };
 	match resource {
 		Resource::Owned with { box = b } => { return b.value; }
 		Resource::Free => { return 0; }
@@ -1784,7 +1784,7 @@ func TestDynamicArrayOwnerOperationsTypecheck(t *testing.T) {
 func TestDynamicArrayShrinkAcceptsMoveOnlyElements(t *testing.T) {
 	diag := checkTypeSource(t, `struct Point { x: i32 }
 fn main() {
-	let mut points = []Point{.Point{x = 1}};
+	let mut points = []Point{Point.{x = 1}};
 	points |> shrink(0);
 }`)
 	if diag.HasErrors() {
@@ -1826,7 +1826,7 @@ func TestDynamicArrayResizeRejectsMoveOnlyElements(t *testing.T) {
 	diag := checkTypeSource(t, `struct Point { x: i32 }
 fn main() {
 	let mut points = []Point{};
-	points |> resize(2, .Point{x = 0});
+	points |> resize(2, Point.{x = 0});
 }`)
 	if !hasTypeCode(diag, diagnostics.ErrInvalidCopy) ||
 		!strings.Contains(diag.EmitAllToString(), "grow Category B arrays with append") {
@@ -2765,7 +2765,7 @@ func TestTypedStructLiteralInfersNamedStruct(t *testing.T) {
 }
 
 fn main() -> i32 {
-	let p = .Point{ x = 1, y = 2 };
+	let p = Point.{ x = 1, y = 2 };
 	return p.x;
 }`
 	diag := checkTypeSource(t, src)

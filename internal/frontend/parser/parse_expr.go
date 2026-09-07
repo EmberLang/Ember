@@ -114,7 +114,7 @@ func init() {
 	nud(token.TILDE, func(p *Parser) ast.Expr { return p.parseUnaryExpr() })
 
 	// composite literal
-	nud(token.DOT, func(p *Parser) ast.Expr { return p.parseCompositeLiteral() })
+	nud(token.DOT, func(p *Parser) ast.Expr { return p.parseCompositeLiteral(nil) })
 	nud(token.LBRACK, func(p *Parser) ast.Expr { return p.parseArrayLiteral() })
 
 	// logical
@@ -538,27 +538,23 @@ func (p *Parser) parseIdentExpr() ast.Expr {
 }
 
 func (p *Parser) parseIdentPath() ast.Expr {
-	id := p.parseIdent()
-	if id == nil {
+	next := p.next().Kind
+	if next != token.DCOLON &&
+		!(next == token.LT && p.typeArgumentsPrecedePathOrLiteral()) &&
+		!(next == token.DOT && p.pos+2 < len(p.stream) && p.stream[p.pos+2].Kind == token.LBRACE) {
+		return p.parseIdent()
+	}
+	typ := p.parseTypeExpr()
+	if typ == nil {
 		return nil
 	}
-	first := ast.PathSegment{Name: id, Location: id.Location}
-	if p.at(token.LT) && p.typeArgumentsAreFollowedByScope() {
-		args, close, ok := p.parseTypeArguments()
-		if !ok {
-			return nil
-		}
-		first.TypeArgs = args
-		first.Location = source.NewLocation(p.filePath, ast.StartOf(id), close.End)
+	if p.at(token.DOT) && p.next().Kind == token.LBRACE {
+		return p.parseCompositeLiteral(typ)
 	}
-	if p.at(token.DCOLON) {
-		path := p.parseScopeResolution(first)
-		if path == nil {
-			return nil
-		}
+	if path, ok := typ.(*ast.ScopeResolution); ok {
 		return path
 	}
-	return id
+	return nil
 }
 
 func (p *Parser) parseVariantCasePath() *ast.ScopeResolution {
@@ -595,12 +591,9 @@ func (p *Parser) variantLiteralPrecedesControlBody() bool {
 	return false
 }
 
-func (p *Parser) typeArgumentsAreFollowedByScope() bool {
-	if !p.at(token.LT) {
-		return false
-	}
+func (p *Parser) typeArgumentsPrecedePathOrLiteral() bool {
 	depth := 0
-	for index := p.pos; index < len(p.stream); index++ {
+	for index := p.pos + 1; index < len(p.stream); index++ {
 		switch p.stream[index].Kind {
 		case token.LT:
 			depth++
@@ -615,7 +608,8 @@ func (p *Parser) typeArgumentsAreFollowedByScope() bool {
 			return false
 		}
 		if depth == 0 {
-			return index+1 < len(p.stream) && p.stream[index+1].Kind == token.DCOLON
+			return index+1 < len(p.stream) && (p.stream[index+1].Kind == token.DCOLON ||
+				(index+2 < len(p.stream) && p.stream[index+1].Kind == token.DOT && p.stream[index+2].Kind == token.LBRACE))
 		}
 	}
 	return false
@@ -637,22 +631,31 @@ func (p *Parser) parseSelector(left ast.Expr) ast.Expr {
 	})
 }
 
-func (p *Parser) parseCompositeLiteral() ast.Expr {
+func (p *Parser) parseCompositeLiteral(typ ast.TypeExpr) ast.Expr {
 	start := p.consume(token.DOT, "expected '.'")
 	if start == nil {
 		return nil
 	}
-	var typ ast.TypeExpr
-	openMsg := "expected '{' after '.'"
-	if p.current().Kind == token.IDENT {
-		typ = p.parseTypeExpr()
-		openMsg = "expected '{' after composite literal type"
+	startPos := start.Start
+	if typ != nil {
+		startPos = ast.StartOf(typ)
 	}
-	fields, end, _ := p.parseStructLiteralFields(openMsg, "expected '}' after composite literal")
+	oldSpelling := typ == nil && p.at(token.IDENT)
+	if oldSpelling {
+		typ = p.parseTypeExpr()
+	}
+	fields, end, _ := p.parseStructLiteralFields("expected '{' after '.'", "expected '}' after composite literal")
+	location := source.NewLocation(p.filePath, startPos, end.End)
+	if oldSpelling {
+		p.diag.Add(diagnostics.NewError("named struct literals use Type.{...}, not .Type{...}").
+			WithCode(diagnostics.ErrInvalidExpression).
+			WithPrimaryLabel(location, "write `Type.{...}`; keep fields as `x = value`"))
+		return reg(p, &ast.BadExpr{Location: location})
+	}
 	return reg(p, &ast.StructLit{
 		Type:     typ,
 		Fields:   fields,
-		Location: source.NewLocation(p.filePath, start.Start, end.End),
+		Location: location,
 	})
 }
 

@@ -3,5 +3,5 @@ struct Counter {
 }
 
 fn MakeCounter() -> *Counter {
-    return alloc(.Counter{ value = 42 });
+    return alloc(Counter.{ value = 42 });
 }

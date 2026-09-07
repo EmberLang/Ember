@@ -16,7 +16,7 @@ fn (cell: &Cell) read() -> i32 {
 }
 
 fn main() -> i32 {
-    let mut trace = .Trace{order = 0};
+    let mut trace = Trace.{order = 0};
     let mut matrix = [2][2]i32{[2]i32{7, 8}, [2]i32{9, 10}};
     let value = matrix[mark(&mut trace, 1)][mark(&mut trace, 2)];
     if value != 7 || trace.order != 12 { return 1; }

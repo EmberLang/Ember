@@ -1493,7 +1493,7 @@ func TestParseStructLiteral(t *testing.T) {
 
 func TestParseTypedStructLiteral(t *testing.T) {
 	src := `fn main() -> i32 {
-	let p = .Point{ x = 1, y = 2, };
+	let p = Point.{ x = 1, y = 2, };
 	return p.x;
 }`
 	mod, diag := parseTestModule(src)
@@ -1518,6 +1518,147 @@ func TestParseTypedStructLiteral(t *testing.T) {
 	}
 	if len(lit.Fields) != 2 {
 		t.Fatalf("literal fields: got %d want 2", len(lit.Fields))
+	}
+}
+
+func TestParseNamedStructLiteralTypesAndLocations(t *testing.T) {
+	for _, name := range []string{
+		"Point", "Box<i32>", "pkg::Point", "pkg::Box<i32>",
+		"Box<Box<i32>>", "pkg::Box<other::Box<i32>>", "Outer<i32>::Inner<Box<i32>>",
+		"Box<&mut i32>", "Box<[2]i32>", "value", "i32", "Enum::Variant",
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Whether a name denotes a struct is checked after parsing.
+			src := "fn main() { let result = " + name + ".{ x = 1 }; }"
+			mod, diag := parseTestModule(src)
+			if diag.HasErrors() {
+				t.Fatalf("unexpected diagnostics: %s", diag.EmitAllToString())
+			}
+			lit, ok := mod.Stmts[0].(*ast.FnDecl).Body.Stmts[0].(*ast.LetDecl).Value.(*ast.StructLit)
+			if !ok || ast.TypeText(lit.Type) != name || len(lit.Fields) != 1 {
+				t.Fatalf("literal = %#v, want type %s and one field", lit, name)
+			}
+			start := strings.Index(src, name+".{")
+			if ast.StartOf(lit).Index != start || ast.EndOf(lit).Index != start+len(name+".{ x = 1 }") {
+				t.Fatalf("literal location = %#v", lit.Location)
+			}
+			if ast.StartOf(lit.Type).Index != start || ast.EndOf(lit.Type).Index != start+len(name) {
+				t.Fatalf("type location = %#v", ast.LocOf(lit.Type))
+			}
+			field := lit.Fields[0]
+			if field.Name.Name != "x" || ast.StartOf(field.Name).Index != strings.Index(src, "x =") ||
+				ast.StartOf(field.Value).Index != strings.Index(src, "1 }") {
+				t.Fatalf("field = %#v", field)
+			}
+		})
+	}
+}
+
+func TestParseStructLiteralExpressionContexts(t *testing.T) {
+	for _, expr := range []string{
+		"Point.{}", ".{}", ".{ x = Point.{ x = 1 } }",
+		"Box<Point>.{ x = .{ x = 1 } }", "accept(Point.{ x = 1 })",
+		"Point.{ x = 1 }.x", "[1]Point{Point.{ x = 1 }}",
+		"Result<Point>::Ok with Point.{ x = 1 }",
+	} {
+		t.Run(expr, func(t *testing.T) {
+			mod, diag := parseTestModule("fn main() { return " + expr + "; }")
+			if diag.HasErrors() {
+				t.Fatalf("unexpected diagnostics: %s", diag.EmitAllToString())
+			}
+			if len(mod.Stmts[0].(*ast.FnDecl).Body.Stmts) != 1 {
+				t.Fatal("expected one return statement")
+			}
+		})
+	}
+}
+
+func TestParseStructLiteralControlHeaders(t *testing.T) {
+	mod, diag := parseTestModule(`fn main() {
+		if value == Box<Box<i32>>.{ x = 1 } { println(1); }
+		for value != pkg::Box<i32>.{ x = 2 } { break; }
+		for item in Items.{ x = 3 } { println(item); }
+		match Point.{ x = 4 } { Result::Pending => {} }
+		if pkg::ready { println(5); }
+	}`)
+	if diag.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diag.EmitAllToString())
+	}
+	body := mod.Stmts[0].(*ast.FnDecl).Body.Stmts
+	if len(body) != 5 {
+		t.Fatalf("statements = %d, want 5", len(body))
+	}
+	exprs := []ast.Expr{
+		body[0].(*ast.IfStmt).Cond.(*ast.BinaryExpr).Right,
+		body[1].(*ast.ForStmt).Cond.(*ast.BinaryExpr).Right,
+		body[2].(*ast.ForStmt).Iterable,
+		body[3].(*ast.MatchStmt).Subject,
+	}
+	for index, expr := range exprs {
+		if _, ok := expr.(*ast.StructLit); !ok {
+			t.Fatalf("header %d = %T, want struct literal", index, expr)
+		}
+	}
+	if got := ast.ExprText(body[4].(*ast.IfStmt).Cond); got != "pkg::ready" {
+		t.Fatalf("qualified condition = %q", got)
+	}
+}
+
+func TestParseStructLiteralGenericComparisons(t *testing.T) {
+	for _, expr := range []string{
+		"a < b", "a < b > c", "a < b >> c", "a < b && c > d",
+		"a < Box<i32>.{ x = 1 }.x", "a < Result<i32>::Pending",
+	} {
+		t.Run(expr, func(t *testing.T) {
+			mod, diag := parseTestModule("fn main() { if " + expr + " {} }")
+			if diag.HasErrors() {
+				t.Fatalf("unexpected diagnostics: %s", diag.EmitAllToString())
+			}
+			if _, ok := mod.Stmts[0].(*ast.FnDecl).Body.Stmts[0].(*ast.IfStmt).Cond.(*ast.BinaryExpr); !ok {
+				t.Fatal("expected binary condition")
+			}
+		})
+	}
+}
+
+func TestParseRejectsOldNamedStructLiteralsAndRecovers(t *testing.T) {
+	for _, expr := range []string{".Point{ x = 1 }", ".Box<Box<i32>>{ x = 1 }", ".pkg::Box<i32>{ x = 1 }"} {
+		t.Run(expr, func(t *testing.T) {
+			src := "fn main() { let bad = " + expr + "; let good = Point.{}; if value == " + expr + " {} return good; }"
+			mod, diag := parseTestModule(src)
+			if !diag.HasErrors() || !strings.Contains(diag.EmitAllToString(), "Type.{...}") {
+				t.Fatalf("expected migration diagnostic: %s", diag.EmitAllToString())
+			}
+			body := mod.Stmts[0].(*ast.FnDecl).Body.Stmts
+			if len(body) != 4 {
+				t.Fatalf("recovered statements = %d, want 4", len(body))
+			}
+			bad, ok := body[0].(*ast.LetDecl).Value.(*ast.BadExpr)
+			if !ok || ast.StartOf(bad).Index != strings.Index(src, expr) || ast.EndOf(bad).Index != strings.Index(src, expr)+len(expr) {
+				t.Fatalf("bad literal = %#v", bad)
+			}
+			if _, ok := body[1].(*ast.LetDecl).Value.(*ast.StructLit); !ok {
+				t.Fatal("expected recovered named literal")
+			}
+			if _, ok := body[2].(*ast.IfStmt).Cond.(*ast.BinaryExpr).Right.(*ast.BadExpr); !ok {
+				t.Fatal("expected rejected old literal in control header")
+			}
+		})
+	}
+}
+
+func TestParseRejectsStructLiteralExpressionTypesAndFields(t *testing.T) {
+	for _, expr := range []string{
+		"make().{}", "value.field.{}", "values[0].{}", "(Point).{}", "(a + b).{}", "1.{}",
+		"Point{ x = 1 }", "Point.{ .x = 1 }", "Point.{ x: 1 }", "Point.{ x = }",
+		"Box<>.{}", "Box<1>.{}", "Point.{ x = 1",
+	} {
+		t.Run(expr, func(t *testing.T) {
+			_, diag := parseTestModule("fn main() { let bad = " + expr + "; }")
+			if !diag.HasErrors() {
+				t.Fatal("expected syntax diagnostic")
+			}
+		})
 	}
 }
 

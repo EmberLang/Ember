@@ -1,0 +1,7 @@
+name = "runtime_struct_literal_dot"
+build = "program"
+
+[test]
+mode = "run"
+outcome = "success"
+stdout_contains = ["struct literal dot ok"]

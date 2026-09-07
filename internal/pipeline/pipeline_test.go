@@ -1617,7 +1617,7 @@ func TestPipelineLowersPointerReceiverOnNamedStruct(t *testing.T) {
 	entrySrc := `struct File {}
 
 fn open_file() -> *File {
-	return alloc(.File{});
+	return alloc(File.{});
 }
 
 	fn (self: *File) read(buf: cstr) -> i32 {
@@ -1846,7 +1846,7 @@ func TestPipelineLowersPointerFieldAssignment(t *testing.T) {
 }
 
 fn open_counter() -> *Counter {
-	return alloc(.Counter{ value = 0 });
+	return alloc(Counter.{ value = 0 });
 }
 
 	fn (self: *Counter) bump() -> i32 {
@@ -2302,7 +2302,7 @@ func TestPipelineLowersPointerFieldAccess(t *testing.T) {
 }
 
 fn open_point() -> *Point {
-	return alloc(.Point{ x = 0, y = 0 });
+	return alloc(Point.{ x = 0, y = 0 });
 }
 
 fn main() -> i32 {
@@ -3034,7 +3034,7 @@ fn invalid(mut holder: Holder) -> i32 {
 	if holder.field == none {
 		return 0;
 	}
-	holder = .Holder{field = 1};
+	holder = Holder.{field = 1};
 	return holder.field;
 }`,
 		},
@@ -3053,7 +3053,7 @@ fn invalid(mut outer: Outer) -> i32 {
 	if outer.inner.field == none {
 		return 0;
 	}
-	outer.inner = .Holder{field = 1};
+	outer.inner = Holder.{field = 1};
 	return outer.inner.field;
 }`,
 		},

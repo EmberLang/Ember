@@ -151,13 +151,13 @@ fn main() -> i32 {
         }
     }
 
-    let holder = .Holder{field = Some(9), items = [2]?i32{Some(11), none}};
+    let holder = Holder.{field = Some(9), items = [2]?i32{Some(11), none}};
     if holder.field != none {
         if holder.field != 9 {
             return 5;
         }
     }
-    let nestedOuter = .Outer{inner = .Holder{field = Some(9), items = [2]?i32{none, none}}};
+    let nestedOuter = Outer.{inner = Holder.{field = Some(9), items = [2]?i32{none, none}}};
     if nestedOuter.inner.field != none {
         if nestedOuter.inner.field != 9 {
             return 5;
@@ -190,11 +190,11 @@ fn main() -> i32 {
         }
     }
 
-    let ownerResult = TakeOptional(.Token{value = 23});
+    let ownerResult = TakeOptional(Token.{value = 23});
     if ownerResult != 23 {
         return 8;
     }
-    if ReadOptionalMethod(.Token{value = 41}) != 41 {
+    if ReadOptionalMethod(Token.{value = 41}) != 41 {
         return 8;
     }
 
@@ -208,7 +208,7 @@ fn main() -> i32 {
     }
     let mut referenced = 31;
     ReborrowOptionalReference(&mut referenced);
-    if ReadAfterOwnedPayloadMutation(alloc(.OwnedBox{value = 37})) != 37 {
+    if ReadAfterOwnedPayloadMutation(alloc(OwnedBox.{value = 37})) != 37 {
         return 10;
     }
 
@@ -221,18 +221,18 @@ fn main() -> i32 {
         return 11;
     }
 
-    let aliasHolder = .Holder{field = Some(47), items = [2]?i32{none, none}};
+    let aliasHolder = Holder.{field = Some(47), items = [2]?i32{none, none}};
     if ReadThroughAlias(&aliasHolder) != 47 {
         return 12;
     }
-    if ConsumeOptionalOwner(alloc(.OwnedBox{value = 53})) != 53 {
+    if ConsumeOptionalOwner(alloc(OwnedBox.{value = 53})) != 53 {
         return 13;
     }
 
     if KeepProofAcrossImpossibleEdge(Some(29), Some(1)) != 29 {
         return 14;
     }
-    let eagerHolder = .Holder{field = Some(1), items = [2]?i32{none, none}};
+    let eagerHolder = Holder.{field = Some(1), items = [2]?i32{none, none}};
     if KeepEagerMutationOrder(Some(31), eagerHolder) != 31 {
         return 15;
     }

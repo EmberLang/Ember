@@ -7,7 +7,7 @@ struct Box {
 }
 
 fn MakeBox() -> Box {
-    return .Box{ value = 7, ptr = alloc(0) };
+    return Box.{ value = 7, ptr = alloc(0) };
 }
 
 fn ReadTemporary() -> i32 {
@@ -15,13 +15,13 @@ fn ReadTemporary() -> i32 {
 }
 
 fn ReadFieldAddress() {
-    let box = .Box{ value = 7, ptr = alloc(0) };
+    let box = Box.{ value = 7, ptr = alloc(0) };
     let raw: rawptr = @box.value;
     print(raw);
 }
 
 fn ReplaceBoxField() {
-    let mut box = .Box{ value = 7, ptr = alloc(0) };
+    let mut box = Box.{ value = 7, ptr = alloc(0) };
     box.ptr = alloc(0);
 }
 
@@ -37,7 +37,7 @@ fn main() -> i32 {
     let early = alloc(0);
     free(early);
     alloc(0);
-    .Box{ value = 0, ptr = alloc(0) };
+    Box.{ value = 0, ptr = alloc(0) };
     [1]*i32{alloc(0)};
     let _ = ReadTemporary();
     ReadFieldAddress();

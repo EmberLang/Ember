@@ -1895,7 +1895,7 @@ func TestLSPTypingRecoversDiagnosticsWithoutRestart(t *testing.T) {
 	filePath := filepath.Join(root, "main"+peeper.SourceExt)
 	valid := `struct Point { x: i32, }
 fn main() {
-	let point = .Point{x = 1};
+	let point = Point.{x = 1};
 	print(point.x);
 }
 `
@@ -1904,7 +1904,7 @@ fn main() {
 		invalid string
 	}{
 		{name: "unterminated string inserted at start", invalid: `"` + valid},
-		{name: "malformed struct literal inserted in middle", invalid: strings.Replace(valid, ".Point{x = 1};", ".Point{x = 1;", 1)},
+		{name: "malformed struct literal inserted in middle", invalid: strings.Replace(valid, "Point.{x = 1};", "Point.{x = 1;", 1)},
 		{name: "unclosed parenthesis inserted in middle", invalid: strings.Replace(valid, "print(point.x);", "print((point.x);", 1)},
 		{name: "missing semicolon in middle", invalid: strings.Replace(valid, "print(point.x);", "print(point.x)", 1)},
 		{name: "unclosed block at end", invalid: strings.TrimSuffix(valid, "}\n")},
@@ -1984,21 +1984,31 @@ fn main() -> i32 {
 `
 	writeWorkspaceFile(t, filePath, existing)
 	insertBefore := "\treturn 0;\n"
-	typedLiteral := "\tlet player = .{value = 20};\n"
-	changes := make([]string, 0, len(typedLiteral)+1)
-	for index := range typedLiteral {
-		changes = append(changes, strings.Replace(existing, insertBefore, typedLiteral[:index+1]+insertBefore, 1))
-	}
-	changes = append(changes, existing)
+	for _, test := range []struct {
+		name    string
+		literal string
+	}{
+		{name: "anonymous", literal: "\tlet player = .{value = 20};\n"},
+		{name: "named", literal: "\tlet player = Player.{value = 20};\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			changes := make([]string, 0, len(test.literal)+1)
+			for index := range test.literal {
+				changes = append(changes, strings.Replace(existing, insertBefore, test.literal[:index+1]+insertBefore, 1))
+			}
+			changes = append(changes, existing)
 
-	published := runTimedLSPChanges(t, root, filePath, existing, changes)
-	finalVersion := len(changes) + 1
-	final, ok := diagnosticForVersion(published, finalVersion)
-	if !ok {
-		t.Fatalf("missing diagnostics publish for typed document version %d", finalVersion)
-	}
-	if hasErrorDiagnostic(final.Diagnostics) {
-		t.Fatalf("stale diagnostics after struct literal deletion: %#v", final.Diagnostics)
+			published := runTimedLSPChanges(t, root, filePath, existing, changes)
+			for _, version := range []int{len(changes), len(changes) + 1} {
+				params, ok := diagnosticForVersion(published, version)
+				if !ok {
+					t.Fatalf("missing diagnostics publish for typed document version %d", version)
+				}
+				if hasErrorDiagnostic(params.Diagnostics) {
+					t.Fatalf("stale diagnostics after struct literal completion/deletion at version %d: %#v", version, params.Diagnostics)
+				}
+			}
+		})
 	}
 }
 

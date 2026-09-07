@@ -425,7 +425,7 @@ fn main() -> i32 { return replace(1); }`,
 }`,
 		"projected assignment": `struct Box { value: i32 }
 fn main() -> i32 {
-	let mut box = .Box{ value = 1 };
+	let mut box = Box.{ value = 1 };
 	box.value = 2;
 	return box.value;
 }`,
@@ -438,7 +438,7 @@ fn main() -> i32 {
 		"mutable receiver": `struct Counter { value: i32 }
 fn (self: &mut Counter) bump() { self.value = 2; }
 fn main() -> i32 {
-	let mut counter = .Counter{ value = 1 };
+	let mut counter = Counter.{ value = 1 };
 	counter.bump();
 	return counter.value;
 }`,
@@ -474,7 +474,7 @@ func TestUnusedMutableBindingDoesNotAlsoWarnAsUnmodified(t *testing.T) {
 func TestPointeeMutationDoesNotCountAsBindingMutation(t *testing.T) {
 	src := `struct Box { value: i32 }
 fn main() -> i32 {
-	let mut box = alloc(.Box{ value = 1 });
+	let mut box = alloc(Box.{ value = 1 });
 	box.value = 2;
 	return box.value;
 }`

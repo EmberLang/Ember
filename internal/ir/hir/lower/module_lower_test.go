@@ -502,7 +502,7 @@ func TestGenerateHIRPreservesNamedOptionalPayload(t *testing.T) {
 }
 
 fn promote() -> ?Token {
-	return .Token{value = 7};
+	return Token.{value = 7};
 }`)
 	ret := out.Funcs[0].Body.Stmts[0].(*hir.Return)
 	optional, ok := ret.Value.(*ir.VariantMake)
@@ -833,7 +833,7 @@ func TestGenerateHIRPreservesDiscardedOwnedCompositeIdentity(t *testing.T) {
 	out := generateTestHIR(t, "hir_discarded_owned_composite_test"+peeper.SourceExt, "hir_discarded_owned_composite_test", `struct Box { ptr: *i32 }
 fn acquire() -> *i32;
 fn main() {
-	.Box{ ptr = acquire() };
+	Box.{ ptr = acquire() };
 	[1]*i32{acquire()};
 }`)
 	if len(out.Funcs[0].Body.Stmts) != 2 {

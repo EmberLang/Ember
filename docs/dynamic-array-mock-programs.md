@@ -29,7 +29,7 @@ struct Point {
 }
 
 fn consume_points() {
-    let first = .Point{x = 1}
+    let first = Point.{x = 1}
     let points = []Point{first}
     use(first) // error: first moved into points
 }

@@ -2,6 +2,34 @@ package ast
 
 import "testing"
 
+func TestStructLiteralExprText(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		typ  TypeExpr
+		want string
+	}{
+		{name: "anonymous", want: ".{x = value}"},
+		{name: "named", typ: &NamedType{Name: "Point"}, want: "Point.{x = value}"},
+		{
+			name: "qualified generic",
+			typ: &ScopeResolution{Segments: []PathSegment{
+				{Name: &Ident{Name: "models"}},
+				{Name: &Ident{Name: "Point"}, TypeArgs: []TypeExpr{&NamedType{Name: "i32"}}},
+			}},
+			want: "models::Point<i32>.{x = value}",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			literal := &StructLit{Type: test.typ, Fields: []StructLitField{
+				{Name: &Ident{Name: "x"}, Value: &Ident{Name: "value"}},
+			}}
+			if got := ExprText(literal); got != test.want {
+				t.Fatalf("ExprText = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestEnumVariantMemberSplitsLocalAndImportedPaths(t *testing.T) {
 	tests := []struct {
 		name     string
