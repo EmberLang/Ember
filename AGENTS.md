@@ -53,19 +53,12 @@ Do not rely on earlier turn notes or earlier same-turn checks. Re-run this gate 
 
 ## 3) Agent hard constraints
 
-These are workflow reminders. Full authority stays in `RULES.md`.
+Full authority stays in `RULES.md`. Sections 2 and 7 enforce the shared reuse, wrapper (including old-name wrappers), alias, parameter, duplication, helper, and behavior-preservation constraints before and after every patch.
 
-- Do not add pass-through wrappers.
-- Do not keep old function names as wrappers around new canonical functions.
-- Do not keep old signatures while ignoring parameters.
-- Do not duplicate logic that can be centralized.
-- Prefer existing shared logic before introducing new helpers.
-- Remove local repetition when it can be reduced without harming clarity.
-- Optimize for readability and maintainability first, not only correctness.
-- Do not leave touched code in repetitive or obviously cleanup-needed state.
-- Keep diffs minimal and task-focused.
-- Do not mix unrelated refactors into the same change.
-- Do not satisfy compiler requests with shortcut paths that bypass intended phase boundaries.
+- Reduce local repetition without harming clarity; leave no obviously cleanup-needed touched code.
+- Optimize for readability and maintainability, not only correctness.
+- Keep diffs minimal and task-focused; do not mix unrelated refactors.
+- Do not bypass intended compiler phase boundaries.
 
 ---
 
