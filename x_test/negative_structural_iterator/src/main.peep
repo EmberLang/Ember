@@ -7,13 +7,10 @@ fn (self: &Extra) Next(value: i32 = 1) -> ?i32 { return value; }
 struct Cursor {}
 fn (self: &mut Cursor) Next() -> ?i32 { return none; }
 
-struct Aggregate {}
-fn (self: &Aggregate) Next() -> ?Cursor { return none; }
 
 iface Erased { fn (&mut Self) Next() -> ?i32 }
 fn RejectErased(cursor: &mut Erased) { for item in cursor {} }
 
-struct Outer { cursor: Cursor, count: i32 }
 
 fn main() {
     let wrong = WrongReturn.{};
@@ -24,8 +21,5 @@ fn main() {
     for index, item in indexed {}
     let immutable = Cursor.{};
     for item in immutable {}
-    let mut outer = Outer.{ cursor = Cursor.{}, count = 0 };
-        for item in outer.cursor {}
-    let aggregate = Aggregate.{};
-    for item in aggregate {}
+
 }

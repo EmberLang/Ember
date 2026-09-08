@@ -493,6 +493,24 @@ fn inspect(value: result::Alias) {
 	}
 }
 
+func TestHoverShowsStructuralIteratorItemType(t *testing.T) {
+	root := t.TempDir()
+	filePath := filepath.Join(root, "main"+peeper.SourceExt)
+	src := `struct Item { value: i32 }
+struct Cursor {}
+fn (self: &Cursor) Next() -> ?Item { return none; }
+fn main() {
+	let cursor = Cursor.{};
+	for item in cursor { return __CURSOR__item.value; }
+}`
+	state := NewServerState()
+	state.RootDir = root
+	hover := hoverAtSource(t, state, filePath, src)
+	if hover == nil || !strings.Contains(hover.Contents.Value, "(var) item: Item") {
+		t.Fatalf("iterator item hover = %#v, want Item", hover)
+	}
+}
+
 func TestHoverShowsExactCaseFieldType(t *testing.T) {
 	root := t.TempDir()
 	filePath := filepath.Join(root, "main"+peeper.SourceExt)

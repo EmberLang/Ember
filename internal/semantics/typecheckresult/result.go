@@ -153,7 +153,11 @@ type Result struct {
 	// Each block owns any temporary source binding and ends with the checked
 	// loop, which retains the source loop's ID. The block has its own scope ID.
 	CheckedIterations map[ast.NodeID]*ast.BlockStmt
-	ExprTypes         map[ast.NodeID]typeinfo.Type
+	// PayloadDepths requests an exact number of proven variant payload projections
+	// for an expression. Most source expressions derive this from expected types;
+	// generated checked operations use it when the expected type is itself optional.
+	PayloadDepths map[ast.NodeID]int
+	ExprTypes     map[ast.NodeID]typeinfo.Type
 	// ValueUses classifies every ownership-relevant value use, keyed by the
 	// used expression's node ID. Reference parameters publish UseRead; the
 	// borrow machinery in ownership still governs them.
@@ -182,6 +186,7 @@ func New() *Result {
 		Matches:                  make(map[ast.NodeID]Match),
 		ForIterations:            make(map[ast.NodeID]ForIteration),
 		CheckedIterations:        make(map[ast.NodeID]*ast.BlockStmt),
+		PayloadDepths:            make(map[ast.NodeID]int),
 		ExprTypes:                make(map[ast.NodeID]typeinfo.Type),
 		ValueUses:                make(map[ast.NodeID]typeinfo.UseKind),
 		ReferenceArguments:       make(map[ast.NodeID]bool),

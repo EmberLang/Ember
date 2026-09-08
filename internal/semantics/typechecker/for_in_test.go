@@ -24,8 +24,8 @@ func TestStructuralIterationRecognition(t *testing.T) {
 		{name: "immutable", method: "fn (self: &mut Cursor) Next() -> ?i32 { return none; }", binding: "let cursor = Cursor.{};", diagnostic: "mutable"},
 		{name: "temporary literal", method: "fn (self: &mut Cursor) Next() -> ?i32 { return none; }", header: "item in Cursor.{}"},
 		{name: "temporary factory", method: "fn (self: &mut Cursor) Next() -> ?i32 { return none; } fn Make() -> Cursor { return Cursor.{}; }", header: "item in Make()"},
-		{name: "reference deferred", method: "fn (self: &mut Cursor) Next() -> ?i32 { return none; }", binding: "let mut original = Cursor.{}; let cursor = &mut original;", diagnostic: "source is not supported yet", hint: "call `Next()` explicitly"},
-		{name: "nested optional deferred", method: "fn (self: &Cursor) Next() -> ? ?i32 { return none; }", diagnostic: "are not supported yet", hint: "call `Next()` explicitly in a loop"},
+		{name: "reference source", method: "fn (self: &mut Cursor) Next() -> ?i32 { return none; }", binding: "let mut original = Cursor.{}; let cursor = &mut original;"},
+		{name: "nested optional item", method: "fn (self: &Cursor) Next() -> ? ?i32 { return none; }"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			binding, header := test.binding, test.header
@@ -45,6 +45,99 @@ func TestStructuralIterationRecognition(t *testing.T) {
 			}
 			if test.hint != "" && !strings.Contains(diag.EmitAllToString(), test.hint) {
 				t.Fatalf("missing actionable hint %q:\n%s", test.hint, diag.EmitAllToString())
+			}
+		})
+	}
+}
+
+func TestStructuralIterationMatchesExplicitOperations(t *testing.T) {
+	for _, test := range []struct {
+		name, source, implicit, explicit string
+	}{
+		{
+			name: "field source",
+			source: `struct Cursor {}
+fn (self: &mut Cursor) Next() -> ?i32 { return none; }
+struct Holder { cursor: Cursor }
+fn main() {
+	let mut holder = Holder.{ cursor = Cursor.{} };
+	__LOOP__
+}`,
+			implicit: "for item in holder.cursor { let value: i32 = item; }",
+			explicit: "for { let result = holder.cursor.Next(); if result == none { break; } let item: i32 = result; let value: i32 = item; }",
+		},
+		{
+			name: "dynamic indexed source",
+			source: `struct Cursor {}
+fn (self: &mut Cursor) Next() -> ?i32 { return none; }
+fn main() {
+	let mut cursors = [2]Cursor{Cursor.{}, Cursor.{}};
+	let index: i32 = 0;
+	__LOOP__
+}`,
+			implicit: "for item in cursors[index] { let value: i32 = item; }",
+			explicit: "let source = &mut cursors[index]; for { let result = source.Next(); if result == none { break; } let item: i32 = result; let value: i32 = item; }",
+		},
+		{
+			name: "reference parameter source",
+			source: `struct Cursor {}
+fn (self: &mut Cursor) Next() -> ?i32 { return none; }
+fn Walk(cursor: &mut Cursor) { __LOOP__ }
+fn main() { let mut cursor = Cursor.{}; Walk(&mut cursor); }`,
+			implicit: "for item in cursor { let value: i32 = item; }",
+			explicit: "for { let result = cursor.Next(); if result == none { break; } let item: i32 = result; let value: i32 = item; }",
+		},
+		{
+			name: "aggregate item",
+			source: `struct Item { value: i32 }
+struct Cursor {}
+fn (self: &Cursor) Next() -> ?Item { return none; }
+fn main() { let cursor = Cursor.{}; __LOOP__ }`,
+			implicit: "for item in cursor { let value: i32 = item.value; }",
+			explicit: "for { let result = cursor.Next(); if result == none { break; } let item: Item = result; let value: i32 = item.value; }",
+		},
+		{
+			name: "owned item",
+			source: `struct Cursor {}
+fn (self: &Cursor) Next() -> ?*i32 { return none; }
+fn main() { let cursor = Cursor.{}; __LOOP__ }`,
+			implicit: "for item in cursor { free(item); }",
+			explicit: "for { let result = cursor.Next(); if result == none { break; } let item: *i32 = result; free(item); }",
+		},
+		{
+			name: "nested optional item",
+			source: `struct Cursor {}
+fn (self: &Cursor) Next() -> ? ?i32 { return none; }
+fn main() { let cursor = Cursor.{}; __LOOP__ }`,
+			implicit: "for item in cursor { if item != none { let value: i32 = item; } }",
+			explicit: "for { let result = cursor.Next(); if result == none { break; } if result != none { let value: i32 = result; } }",
+		},
+		{
+			name: "reference item",
+			source: `struct Cursor { value: i32 }
+fn (self: &mut Cursor) Next() -> ?&i32 from self { return none; }
+fn main() { let mut cursor = Cursor.{ value = 1 }; __LOOP__ }`,
+			implicit: "for item in cursor { let value: &i32 = item; }",
+			explicit: "for { let result = cursor.Next(); if result == none { break; } let item: &i32 = result; let value: &i32 = item; }",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, implicit := range []bool{false, true} {
+				loop := test.explicit
+				if implicit {
+					loop = test.implicit
+				}
+				module, diag := checkTypeModule(t, strings.Replace(test.source, "__LOOP__", loop, 1))
+				if diag.HasErrors() {
+					t.Fatalf("implicit=%v unexpected diagnostics:\n%s", implicit, diag.EmitAllToString())
+				}
+				expectedExpansions := 0
+				if implicit {
+					expectedExpansions = 1
+				}
+				if got := len(module.Typechecking.CheckedIterations); got != expectedExpansions {
+					t.Fatalf("implicit=%v checked expansions = %d", implicit, got)
+				}
 			}
 		})
 	}

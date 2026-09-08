@@ -144,12 +144,15 @@ func (c *checker) effectiveExpressionType(scope *symbols.Scope, expr ast.Expr, b
 		return base
 	}
 	_, explicitCarrier := typeinfo.Underlying(expected).(*typeinfo.OptionalType)
-	required := payloadDepthForExpected(base, expected)
-	if c.payloadContext > 0 && required == 0 && !explicitCarrier {
+	required, exactPayloadDepth := c.module.Typechecking.PayloadDepths[expr.ID()]
+	if !exactPayloadDepth {
+		required = payloadDepthForExpected(base, expected)
+	}
+	if c.payloadContext > 0 && required == 0 && !explicitCarrier && !exactPayloadDepth {
 		required = optionalLayerCount(base)
 	}
 	if c.flow == nil {
-		if c.optionalTestContext > 0 || explicitCarrier || required == 0 {
+		if c.optionalTestContext > 0 || (explicitCarrier && !exactPayloadDepth) || required == 0 {
 			return base
 		}
 		return unwrapOptionalLayers(base, required)
@@ -159,7 +162,7 @@ func (c *checker) effectiveExpressionType(scope *symbols.Scope, expr ast.Expr, b
 	resolved := unwrapOptionalLayers(base, len(payloadCases))
 	applied := optionalLayerCount(base) - optionalLayerCount(resolved)
 	payloadCases = payloadCases[:applied]
-	if c.optionalTestContext == 0 && explicitCarrier {
+	if c.optionalTestContext == 0 && explicitCarrier && !exactPayloadDepth {
 		c.recordFlowResolution(expr, resolution)
 		return base
 	}

@@ -91,6 +91,35 @@ must be ordered, within the byte length, and on UTF-8 codepoint boundaries.
 Invalid bounds or boundaries trap at runtime. The owner remains responsible
 for backing storage and is dropped exactly once.
 
+## Iteration
+
+`for item in source` supports built-in ranges and sequences, plus values with an
+accessible `Next()` method. Custom iteration is statically dispatched and does
+not require an interface or generic constraint:
+
+```peep
+fn (self: &mut Counter) Next() -> ?i32 {
+    if self.done { return none; }
+    // Update iterator state and return next item.
+}
+
+for item in counter {
+    println(item);
+}
+```
+
+`Next` declares exactly its receiver and returns `?Item`. A present result binds
+one `Item`; `none` ends loop. If `Item` is itself optional, only outer result
+layer is removed. Custom loops provide one item binding and do not synthesize an
+index.
+
+Source expression is evaluated once. Existing places retain identity; produced
+values live for loop scope. Each attempted iteration calls `Next` once.
+`continue` starts next attempt, while `break` and `return` do not make another
+call. Calls, optional extraction, moves, borrows, reference provenance, and
+cleanup follow same rules as equivalent ordinary statements. Interface values
+are not custom iterator sources; method target must be statically known.
+
 ## Generic Named Types
 
 Structs, enums, interfaces, and transparent type aliases may declare type

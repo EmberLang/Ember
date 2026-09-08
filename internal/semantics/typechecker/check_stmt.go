@@ -632,7 +632,7 @@ func (c *checker) checkForInStmt(scope *symbols.Scope, node *ast.ForStmt, return
 						d.WithNote("for loops do not support interface values, even when the interface declares `Next`").
 							WithHelp("iterate over the original struct value before passing it as an interface")
 					} else {
-						d.WithHelp("use a range, array, slice, or a struct value with a `Next()` method available here").
+						d.WithHelp("use a range, array, slice, or a value with a `Next()` method available here").
 							WithNote("`Next()` must return an optional item, such as `?i32`; method names are case-sensitive")
 					}
 					c.ctx.Diagnostics.Add(d)
@@ -683,9 +683,8 @@ func (c *checker) checkForInStmt(scope *symbols.Scope, node *ast.ForStmt, return
 }
 
 // checkStructuralIteration publishes ordinary checked statements rather than
-// adding hidden call/borrow semantics in lowering. Temporary struct sources use
-// normal binding cleanup; existing local cursors keep their place identity.
-// Complex places and resource-bearing items remain outside this slice (#123).
+// adding hidden call/borrow semantics in lowering. Existing places retain their
+// storage identity; produced values use normal binding cleanup.
 func (c *checker) checkStructuralIteration(scope *symbols.Scope, node *ast.ForStmt, iterableType typeinfo.Type) bool {
 	method, found := c.lookupDeclaredCallableMember(iterableType, "Next")
 	if !found || method.Symbol == nil {
@@ -712,48 +711,45 @@ func (c *checker) checkStructuralIteration(scope *symbols.Scope, node *ast.ForSt
 			WithHelp("return an optional type, such as `?i32`: return an item to continue, or `none` to end the loop"))
 		return true
 	}
-	cursor, local := node.Iterable.(*ast.Ident)
-	var cursorSymbol *symbols.Symbol
-	if local {
-		cursorSymbol = c.module.Bindings.NodeSymbols[cursor.ID()]
-	}
-	_, concrete := typeinfo.Underlying(iterableType).(*typeinfo.StructType)
-	var binding *ast.LetDecl
-	if cursorSymbol != nil {
-		binding, _ = cursorSymbol.ASTNode.(*ast.LetDecl)
-	}
-	temporary := false
-	switch node.Iterable.(type) {
-	case *ast.CallExpr, *ast.StructLit:
-		temporary = concrete
-	}
-	if !concrete || (!temporary && (!local || binding == nil || binding.IsModuleVar)) {
-		c.ctx.Diagnostics.Add(invalidExpressionError(node.Iterable, "this iterator source is not supported yet").
-			WithNote("for loops currently accept a local struct variable, a function returning a struct, or a struct literal; fields and references are not supported yet").
-			WithHelp("call `Next()` explicitly in a loop for this source and stop when it returns `none`"))
-		return true
-	}
-	switch typeinfo.Underlying(optional.Inner).(type) {
-	case *typeinfo.IntegerType, *typeinfo.FloatType, *typeinfo.BoolType, *typeinfo.ByteType, *typeinfo.CharType:
-	default:
-		c.ctx.Diagnostics.Add(invalidExpressionError(node.Iterable,
-			"iterator items of type "+typeinfo.TypeText(optional.Inner)+" are not supported yet").
-			WithSecondaryLabel(ast.LocOf(decl.ReturnType), "the item type comes from this optional return type").
-			WithNote("for loops currently support iterator items of integer, floating-point, bool, byte, and char types").
-			WithHelp("call `Next()` explicitly in a loop and stop when it returns `none`"))
-		return true
+	placeSource := place.IsPlaceExpr(node.Iterable)
+	capturePlace := false
+	for current := node.Iterable; placeSource; {
+		projection, projected := place.Project(current)
+		if !projected {
+			break
+		}
+		if projection.Index != nil {
+			indexType := c.module.BaseExprType(projection.Index.ID())
+			if _, constant := consteval.EvaluateExpr(c.ctx, c.module, scope, projection.Index, indexType); !constant {
+				capturePlace = true
+				break
+			}
+		}
+		current = projection.Base
 	}
 
 	location := ast.LocOf(node)
 	expansion := &ast.BlockStmt{Location: location}
 	var sourceBinding *ast.LetDecl
 	var receiver ast.Expr = node.Iterable
-	if temporary {
+	if !placeSource || capturePlace {
+		sourceValue := node.Iterable
+		mutableSource := true
+		if capturePlace {
+			// Dynamic indexes must select storage once. Capturing its reference keeps
+			// place identity without moving or copying existing cursor storage.
+			mode := ast.AddressShared
+			if _, mutable, reference := typeinfo.ReferenceTarget(typeinfo.Underlying(fnType.Params[0])); reference && mutable {
+				mode = ast.AddressMutable
+			}
+			sourceValue = &ast.AddressExpr{Mode: mode, Expr: node.Iterable, Location: ast.LocOf(node.Iterable)}
+			mutableSource = false
+		}
 		// A non-source identifier avoids collisions while keeping ordinary
 		// ownership diagnostics readable when they name this binding.
 		sourceBinding = &ast.LetDecl{
 			Name:      &ast.Ident{Name: "iterator source", Location: ast.LocOf(node.Iterable)},
-			IsMutable: true, Value: node.Iterable, Location: ast.LocOf(node.Iterable),
+			IsMutable: mutableSource, Value: sourceValue, Location: ast.LocOf(node.Iterable),
 		}
 		expansion.Stmts = append(expansion.Stmts, sourceBinding)
 		receiver = &ast.Ident{Name: sourceBinding.Name.Name, Location: ast.LocOf(node.Iterable)}
@@ -770,9 +766,7 @@ func (c *checker) checkStructuralIteration(scope *symbols.Scope, node *ast.ForSt
 		Then: &ast.BlockStmt{Stmts: []ast.Stmt{&ast.BreakStmt{Location: location}}, Location: location}, Location: location,
 	}
 	item := &ast.LetDecl{
-		Name:  node.Value,
-		Type:  &ast.NamedType{Name: typeinfo.TypeText(optional.Inner), Location: location},
-		Value: &ast.Ident{Name: resultName, Location: location}, Location: location,
+		Name: node.Value, Value: &ast.Ident{Name: resultName, Location: location}, Location: location,
 	}
 	body := *node.Body
 	body.Stmts = append([]ast.Stmt{item}, node.Body.Stmts...)
@@ -813,6 +807,7 @@ func (c *checker) checkStructuralIteration(scope *symbols.Scope, node *ast.ForSt
 	c.module.Bindings.NodeSymbols[result.Name.ID()] = resultSymbol
 	c.module.Bindings.NodeSymbols[stop.Cond.(*ast.BinaryExpr).Left.ID()] = resultSymbol
 	c.module.Bindings.NodeSymbols[item.Value.ID()] = resultSymbol
+	c.module.Typechecking.PayloadDepths[item.Value.ID()] = 1
 	itemSymbol := c.module.Bindings.NodeSymbols[node.Value.ID()]
 	itemSymbol.ASTNode = item
 	c.module.Typechecking.CheckedIterations[node.ID()] = expansion
