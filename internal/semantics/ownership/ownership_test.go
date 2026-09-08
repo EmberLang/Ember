@@ -53,6 +53,7 @@ func checkOwnershipSource(t *testing.T, src string) *ownershipResult {
 	module.CFG = cfg.BuildModule(module.AST, cfg.BuildQueries{
 		MatchCases:          module.Typechecking.MatchCases,
 		LoopGuaranteedEntry: module.Typechecking.ForLoopGuaranteedEntry,
+		CheckedIterations:   module.Typechecking.CheckedIterations,
 	})
 	module.Flow = typechecker.CheckFlow(ctx, module)
 	module.Effects = effect.Build(module.CFG, module.TypedASTNodes, effect.BuildQueries{
@@ -68,6 +69,38 @@ func checkOwnershipSource(t *testing.T, src string) *ownershipResult {
 	})
 	module.Ownership = Check(ctx, module)
 	return &ownershipResult{DiagnosticBag: diag, ctx: ctx, module: module}
+}
+
+func TestStructuralIterationUsesOrdinaryCallGuards(t *testing.T) {
+	for _, test := range []struct {
+		name, receiver, before, body, after, diagnostic string
+	}{
+		{name: "mutable receiver", receiver: "&mut Cursor"},
+		{name: "shared receiver", receiver: "&Cursor"},
+		{name: "body access between advances", receiver: "&mut Cursor", body: "cursor.value = item;"},
+		{name: "consuming backedge", receiver: "Cursor", diagnostic: "moved"},
+		{name: "consuming single attempt", receiver: "Cursor", body: "break;"},
+		{name: "moved source", receiver: "&mut Cursor", before: "Consume(cursor);", diagnostic: "moved"},
+		{name: "body move before backedge", receiver: "&mut Cursor", body: "Consume(cursor);", diagnostic: "moved"},
+		{name: "live conflicting borrow", receiver: "&mut Cursor", before: "let borrowed = &cursor;", after: "let value = borrowed.value;", diagnostic: "borrow"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, implicit := range []bool{false, true} {
+				loop := "for { let result = cursor.Next(); if result == none { break; } let item: i32 = result; " + test.body + " }"
+				if implicit {
+					loop = "for item in cursor { " + test.body + " }"
+				}
+				result := checkOwnershipSource(t, "struct Cursor { value: i32, limit: i32 }\nfn (self: "+test.receiver+") Next() -> ?i32 { return none; }\nfn Consume(cursor: Cursor) {}\nfn main() { let mut cursor = Cursor.{ value = 0, limit = 3 }; "+test.before+loop+test.after+" }")
+				if test.diagnostic == "" {
+					if result.HasErrors() {
+						t.Fatalf("implicit=%v unexpected diagnostics:\n%s", implicit, result.EmitAllToString())
+					}
+				} else if !result.HasErrors() || !strings.Contains(result.EmitAllToString(), test.diagnostic) {
+					t.Fatalf("implicit=%v expected %q:\n%s", implicit, test.diagnostic, result.EmitAllToString())
+				}
+			}
+		})
+	}
 }
 
 func inspectFunctionAnalysis(t *testing.T, result *ownershipResult, name string) *analyzer {

@@ -1,0 +1,8 @@
+name = "negative_structural_iterator"
+build = "program"
+
+[test]
+mode = "check"
+outcome = "failure"
+stderr_contains = ["must return an optional item", "cannot take arguments in a for loop", "provide an item, not an index", "mutable", "stored in a local variable", "iterator items of type Cursor are not supported yet", "cannot iterate over", "cannot be used as bool", "return type is i32", "parameters with defaults are not supported either", "maintain a separate counter", "store the iterator struct in a local", "call `Next()` explicitly in a loop", "iterate over the original struct value before passing it as an interface"]
+stderr_excludes = ["structural iteration", "local concrete cursor", "scalar items", "$for."]

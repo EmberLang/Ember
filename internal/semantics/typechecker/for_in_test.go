@@ -10,6 +10,57 @@ import (
 	"compiler/internal/target"
 )
 
+func TestStructuralIterationRecognition(t *testing.T) {
+	for _, test := range []struct {
+		name, method, binding, header, diagnostic, hint string
+	}{
+		{name: "mutable scalar", method: "fn (self: &mut Cursor) Next() -> ?i32 { return none; }"},
+		{name: "shared bool", method: "fn (self: &Cursor) Next() -> ?bool { return none; }", binding: "let cursor = Cursor.{};"},
+		{name: "no method", diagnostic: "cannot iterate over", hint: "method names are case-sensitive"},
+		{name: "lowercase is not protocol", method: "fn (self: &Cursor) next() -> ?i32 { return none; }", diagnostic: "cannot iterate over"},
+		{name: "wrong return", method: "fn (self: &Cursor) Next() -> i32 { return 0; }", diagnostic: "must return an optional item", hint: "return an item to continue, or `none` to end the loop"},
+		{name: "extra default", method: "fn (self: &Cursor) Next(value: i32 = 0) -> ?i32 { return value; }", diagnostic: "cannot take arguments in a for loop", hint: "parameters with defaults are not supported either"},
+		{name: "index", method: "fn (self: &Cursor) Next() -> ?i32 { return none; }", header: "index, item in cursor", diagnostic: "provide an item, not an index", hint: "maintain a separate counter"},
+		{name: "immutable", method: "fn (self: &mut Cursor) Next() -> ?i32 { return none; }", binding: "let cursor = Cursor.{};", diagnostic: "mutable"},
+		{name: "temporary deferred", method: "fn (self: &mut Cursor) Next() -> ?i32 { return none; }", header: "item in Cursor.{}", diagnostic: "stored in a local variable", hint: "use `let mut` if `Next` changes it"},
+		{name: "nested optional deferred", method: "fn (self: &Cursor) Next() -> ? ?i32 { return none; }", diagnostic: "are not supported yet", hint: "call `Next()` explicitly in a loop"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			binding, header := test.binding, test.header
+			if binding == "" {
+				binding = "let mut cursor = Cursor.{};"
+			}
+			if header == "" {
+				header = "item in cursor"
+			}
+			module, diag := checkTypeModule(t, "struct Cursor {}\n"+test.method+"\nfn main() { "+binding+" for "+header+" {} }")
+			if test.diagnostic == "" {
+				if diag.HasErrors() || len(module.Typechecking.CheckedIterations) != 1 {
+					t.Fatalf("missing checked iteration:\n%s", diag.EmitAllToString())
+				}
+			} else if !diag.HasErrors() || !strings.Contains(diag.EmitAllToString(), test.diagnostic) {
+				t.Fatalf("expected %q:\n%s", test.diagnostic, diag.EmitAllToString())
+			}
+			if test.hint != "" && !strings.Contains(diag.EmitAllToString(), test.hint) {
+				t.Fatalf("missing actionable hint %q:\n%s", test.hint, diag.EmitAllToString())
+			}
+		})
+	}
+}
+
+func TestRejectedStructuralIterationStillChecksBody(t *testing.T) {
+	_, diag := checkTypeModule(t, `struct Cursor {}
+fn (self: &Cursor) Next() -> i32 { return 0; }
+fn main() {
+	let cursor = Cursor.{};
+	for item in cursor { let invalid: bool = 1; }
+}`)
+	text := diag.EmitAllToString()
+	if !strings.Contains(text, "must return an optional item") || !strings.Contains(text, "cannot be used as bool") {
+		t.Fatalf("expected header and body diagnostics:\n%s", text)
+	}
+}
+
 func TestCheckForInOverRange(t *testing.T) {
 	src := `fn main() -> i32 {
 let mut total: i32 = 0;

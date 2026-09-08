@@ -48,6 +48,7 @@ func generateTestHIR(t *testing.T, filePath, importPath, src string, beforeLower
 	module.CFG = cfg.BuildModule(module.AST, cfg.BuildQueries{
 		MatchCases:          module.Typechecking.MatchCases,
 		LoopGuaranteedEntry: module.Typechecking.ForLoopGuaranteedEntry,
+		CheckedIterations:   module.Typechecking.CheckedIterations,
 	})
 	module.Flow = typechecker.CheckFlow(ctx, module)
 	if diag.HasErrors() {
@@ -58,6 +59,33 @@ func generateTestHIR(t *testing.T, filePath, importPath, src string, beforeLower
 	}
 	out := GenerateHIR(ctx, module)
 	return out
+}
+
+func TestGenerateHIRConsumesStructuralIteratorEvidence(t *testing.T) {
+	out := generateTestHIR(t, "hir_iterator_test"+peeper.SourceExt, "hir_iterator_test", `struct Cursor {}
+fn (self: &mut Cursor) Next() -> ?i32 { return none; }
+fn main() {
+	let mut cursor = Cursor.{};
+	for item in cursor { if item == 1 { continue; } }
+}`, func(module *project.Module) { module.Bindings.MethodsByReceiver = nil })
+	var loop *hir.For
+	for _, fn := range out.Funcs {
+		for _, stmt := range fn.Body.Stmts {
+			if candidate, ok := stmt.(*hir.For); ok {
+				loop = candidate
+			}
+		}
+	}
+	if loop == nil || loop.Init != nil || loop.Cond != nil || loop.Next != nil || loop.Bindings != nil {
+		t.Fatalf("custom loop unexpectedly has numeric segments: %#v", loop)
+	}
+	result := loop.Body.Stmts[0].(*hir.Binding)
+	if _, ok := result.Value.(*ir.Call); !ok {
+		t.Fatalf("advancement = %T, want static call", result.Value)
+	}
+	if _, ok := loop.Body.Stmts[1].(*hir.If); !ok {
+		t.Fatalf("missing optional exhaustion branch: %#v", loop.Body.Stmts)
+	}
 }
 
 func TestGenerateHIRLowersRangeForIntoStructuredSegments(t *testing.T) {

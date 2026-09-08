@@ -625,9 +625,24 @@ func (c *checker) checkForInStmt(scope *symbols.Scope, node *ast.ForStmt, return
 			}
 			evidence.ElementType = elem
 		} else {
+			if valid && !c.siteOnly {
+				if !c.checkStructuralIteration(scope, node, iterableType) {
+					d := invalidExpressionError(node.Iterable, "cannot iterate over "+typeinfo.TypeText(iterableType))
+					if _, isInterface := typeinfo.InterfaceTypeOf(iterableType); isInterface {
+						d.WithNote("for loops do not support interface values, even when the interface declares `Next`").
+							WithHelp("iterate over the original struct value before passing it as an interface")
+					} else {
+						d.WithHelp("use a range, array, slice, or a struct value with a `Next()` method available here").
+							WithNote("`Next()` must return an optional item, such as `?i32`; method names are case-sensitive")
+					}
+					c.ctx.Diagnostics.Add(d)
+				}
+				if checked := c.module.Typechecking.CheckedIterations[node.ID()]; checked != nil {
+					c.checkStmt(scope, checked, returnType)
+					return
+				}
+			}
 			valid = false
-			c.ctx.Diagnostics.Add(invalidExpressionError(node.Iterable,
-				"cannot iterate over "+typeinfo.TypeText(iterableType)))
 		}
 	}
 	if node.Index != nil {
@@ -665,6 +680,113 @@ func (c *checker) checkForInStmt(scope *symbols.Scope, node *ast.ForStmt, return
 	c.loopDepth++
 	c.checkBlock(scope, node.Body, returnType)
 	c.loopDepth--
+}
+
+// checkStructuralIteration publishes an ordinary checked loop rather than
+// adding hidden call/borrow semantics in lowering. The first slice accepts
+// local concrete cursor places and scalar items; factories, complex places and
+// resource-bearing payloads need the lifecycle work tracked in issue #123.
+func (c *checker) checkStructuralIteration(scope *symbols.Scope, node *ast.ForStmt, iterableType typeinfo.Type) bool {
+	method, found := c.lookupDeclaredCallableMember(iterableType, "Next")
+	if !found || method.Symbol == nil {
+		return false
+	}
+	if node.Index != nil {
+		c.ctx.Diagnostics.Add(invalidExpressionError(node.Index, "iterator loops provide an item, not an index").
+			WithHelp("use `for item in iterator`; if you need an index, maintain a separate counter"))
+		return true
+	}
+	fnType, callable := method.Type.(*typeinfo.FuncType)
+	decl, declared := method.Symbol.ASTNode.(*ast.FnDecl)
+	if !callable || !declared || decl.Receiver == nil || len(decl.ParamsWithReceiver()) != 1 || len(fnType.Params) != 1 {
+		c.ctx.Diagnostics.Add(invalidExpressionError(node.Iterable, "`Next` cannot take arguments in a for loop").
+			WithSecondaryLabel(method.Symbol.Location, "this method declares additional parameters").
+			WithNote("the loop calls `Next()` without arguments; parameters with defaults are not supported either").
+			WithHelp("move iteration settings into fields on your iterator, or call `Next(...)` explicitly in a loop"))
+		return true
+	}
+	optional, optionalResult := typeinfo.Underlying(fnType.Return).(*typeinfo.OptionalType)
+	if !optionalResult || optional.Inner == nil {
+		c.ctx.Diagnostics.Add(invalidExpressionError(node.Iterable, "`Next` must return an optional item").
+			WithSecondaryLabel(ast.LocOf(decl.ReturnType), "return type is "+typeinfo.TypeText(fnType.Return)).
+			WithHelp("return an optional type, such as `?i32`: return an item to continue, or `none` to end the loop"))
+		return true
+	}
+	cursor, local := node.Iterable.(*ast.Ident)
+	var cursorSymbol *symbols.Symbol
+	if local {
+		cursorSymbol = c.module.Bindings.NodeSymbols[cursor.ID()]
+	}
+	_, concrete := typeinfo.Underlying(iterableType).(*typeinfo.StructType)
+	var binding *ast.LetDecl
+	if cursorSymbol != nil {
+		binding, _ = cursorSymbol.ASTNode.(*ast.LetDecl)
+	}
+	if !local || binding == nil || binding.IsModuleVar || !concrete {
+		c.ctx.Diagnostics.Add(invalidExpressionError(node.Iterable, "this iterator must be a struct value stored in a local variable").
+			WithNote("iterating directly over function results, fields, or references is not supported yet").
+			WithHelp("store the iterator struct in a local `let` binding before the loop; use `let mut` if `Next` changes it"))
+		return true
+	}
+	switch typeinfo.Underlying(optional.Inner).(type) {
+	case *typeinfo.IntegerType, *typeinfo.FloatType, *typeinfo.BoolType, *typeinfo.ByteType, *typeinfo.CharType:
+	default:
+		c.ctx.Diagnostics.Add(invalidExpressionError(node.Iterable,
+			"iterator items of type "+typeinfo.TypeText(optional.Inner)+" are not supported yet").
+			WithSecondaryLabel(ast.LocOf(decl.ReturnType), "the item type comes from this optional return type").
+			WithNote("for loops currently support iterator items of integer, floating-point, bool, byte, and char types").
+			WithHelp("call `Next()` explicitly in a loop and stop when it returns `none`"))
+		return true
+	}
+
+	location := ast.LocOf(node)
+	resultName := fmt.Sprintf("$for.result.%d", node.ID())
+	result := &ast.LetDecl{
+		Name: &ast.Ident{Name: resultName, Location: location},
+		Value: &ast.CallExpr{Callee: &ast.SelectorExpr{
+			Expr: node.Iterable, Name: &ast.Ident{Name: "Next", Location: location}, Location: location,
+		}, Location: location}, Location: location,
+	}
+	stop := &ast.IfStmt{
+		Cond: &ast.BinaryExpr{Left: &ast.Ident{Name: resultName, Location: location}, Op: "==", Right: &ast.NoneLit{Location: location}, Location: location},
+		Then: &ast.BlockStmt{Stmts: []ast.Stmt{&ast.BreakStmt{Location: location}}, Location: location}, Location: location,
+	}
+	item := &ast.LetDecl{
+		Name:  node.Value,
+		Type:  &ast.NamedType{Name: typeinfo.TypeText(optional.Inner), Location: location},
+		Value: &ast.Ident{Name: resultName, Location: location}, Location: location,
+	}
+	body := *node.Body
+	body.Stmts = append([]ast.Stmt{item}, node.Body.Stmts...)
+	checked := &ast.ForStmt{
+		NodeIDHolder: node.NodeIDHolder,
+		Body:         &ast.BlockStmt{Stmts: []ast.Stmt{result, stop, &body}, Location: location}, Location: location,
+	}
+	ast.Inspect(checked, func(generated ast.Node) bool {
+		if generated == nil {
+			return false
+		}
+		if generated.ID() == 0 {
+			generated.SetID(ast.NewSyntheticNodeID())
+		}
+		return true
+	})
+	bodyScope := c.module.Bindings.BlockScopes[node.Body.ID()]
+	iterationScope := bodyScope.InsertParent(scope)
+	c.module.Bindings.BlockScopes[checked.Body.ID()] = iterationScope
+	c.module.Bindings.BlockScopes[stop.Then.ID()] = symbols.NewScope(iterationScope)
+	resultSymbol := symbols.New(resultName, symbols.SymbolVar, result, location)
+	resultSymbol.Used = true
+	if err := iterationScope.Declare(resultSymbol); err != nil {
+		panic(err)
+	}
+	c.module.Bindings.NodeSymbols[result.Name.ID()] = resultSymbol
+	c.module.Bindings.NodeSymbols[stop.Cond.(*ast.BinaryExpr).Left.ID()] = resultSymbol
+	c.module.Bindings.NodeSymbols[item.Value.ID()] = resultSymbol
+	itemSymbol := c.module.Bindings.NodeSymbols[node.Value.ID()]
+	itemSymbol.ASTNode = item
+	c.module.Typechecking.CheckedIterations[node.ID()] = checked
+	return true
 }
 
 func (c *checker) bindLoopVariable(name *ast.Ident, typ typeinfo.Type) {

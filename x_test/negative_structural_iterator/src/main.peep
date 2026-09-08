@@ -1,0 +1,30 @@
+struct WrongReturn {}
+fn (self: &WrongReturn) Next() -> i32 { return 1; }
+
+struct Extra {}
+fn (self: &Extra) Next(value: i32 = 1) -> ?i32 { return value; }
+
+struct Cursor {}
+fn (self: &mut Cursor) Next() -> ?i32 { return none; }
+
+struct Aggregate {}
+fn (self: &Aggregate) Next() -> ?Cursor { return none; }
+
+iface Erased { fn (&mut Self) Next() -> ?i32 }
+fn RejectErased(cursor: &mut Erased) { for item in cursor {} }
+
+fn Factory() -> Cursor { return Cursor.{}; }
+
+fn main() {
+    let wrong = WrongReturn.{};
+    for item in wrong { let invalid: bool = 1; }
+    let extra = Extra.{};
+    for item in extra {}
+    let mut indexed = Cursor.{};
+    for index, item in indexed {}
+    let immutable = Cursor.{};
+    for item in immutable {}
+    for item in Factory() {}
+    let aggregate = Aggregate.{};
+    for item in aggregate {}
+}

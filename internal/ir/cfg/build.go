@@ -34,6 +34,7 @@ type LoopEntryQuery func(ast.NodeID) bool
 type BuildQueries struct {
 	MatchCases          MatchCaseQuery
 	LoopGuaranteedEntry LoopEntryQuery
+	CheckedIterations   map[ast.NodeID]*ast.ForStmt
 }
 
 // BuildModule creates immutable control-flow topology from typed source syntax.
@@ -184,6 +185,9 @@ func (b *builder) buildStmt(stmt ast.Stmt, current *Block, scopeID ir.NodeID) *B
 		}
 		return join
 	case *ast.ForStmt:
+		if checked := b.queries.CheckedIterations[node.ID()]; checked != nil {
+			node = checked
+		}
 		loopID := ir.NodeID(node.ID())
 		init := b.newBlock(BlockLoopInit, ast.LocOf(node))
 		bodyBlock := b.newBlock(BlockLoopBody, ast.LocOf(node))
