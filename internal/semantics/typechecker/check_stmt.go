@@ -682,10 +682,10 @@ func (c *checker) checkForInStmt(scope *symbols.Scope, node *ast.ForStmt, return
 	c.loopDepth--
 }
 
-// checkStructuralIteration publishes an ordinary checked loop rather than
-// adding hidden call/borrow semantics in lowering. The first slice accepts
-// local concrete cursor places and scalar items; factories, complex places and
-// resource-bearing payloads need the lifecycle work tracked in issue #123.
+// checkStructuralIteration publishes ordinary checked statements rather than
+// adding hidden call/borrow semantics in lowering. Temporary struct sources use
+// normal binding cleanup; existing local cursors keep their place identity.
+// Complex places and resource-bearing items remain outside this slice (#123).
 func (c *checker) checkStructuralIteration(scope *symbols.Scope, node *ast.ForStmt, iterableType typeinfo.Type) bool {
 	method, found := c.lookupDeclaredCallableMember(iterableType, "Next")
 	if !found || method.Symbol == nil {
@@ -722,10 +722,15 @@ func (c *checker) checkStructuralIteration(scope *symbols.Scope, node *ast.ForSt
 	if cursorSymbol != nil {
 		binding, _ = cursorSymbol.ASTNode.(*ast.LetDecl)
 	}
-	if !local || binding == nil || binding.IsModuleVar || !concrete {
-		c.ctx.Diagnostics.Add(invalidExpressionError(node.Iterable, "this iterator must be a struct value stored in a local variable").
-			WithNote("iterating directly over function results, fields, or references is not supported yet").
-			WithHelp("store the iterator struct in a local `let` binding before the loop; use `let mut` if `Next` changes it"))
+	temporary := false
+	switch node.Iterable.(type) {
+	case *ast.CallExpr, *ast.StructLit:
+		temporary = concrete
+	}
+	if !concrete || (!temporary && (!local || binding == nil || binding.IsModuleVar)) {
+		c.ctx.Diagnostics.Add(invalidExpressionError(node.Iterable, "this iterator source is not supported yet").
+			WithNote("for loops currently accept a local struct variable, a function returning a struct, or a struct literal; fields and references are not supported yet").
+			WithHelp("call `Next()` explicitly in a loop for this source and stop when it returns `none`"))
 		return true
 	}
 	switch typeinfo.Underlying(optional.Inner).(type) {
@@ -740,11 +745,24 @@ func (c *checker) checkStructuralIteration(scope *symbols.Scope, node *ast.ForSt
 	}
 
 	location := ast.LocOf(node)
+	expansion := &ast.BlockStmt{Location: location}
+	var sourceBinding *ast.LetDecl
+	var receiver ast.Expr = node.Iterable
+	if temporary {
+		// A non-source identifier avoids collisions while keeping ordinary
+		// ownership diagnostics readable when they name this binding.
+		sourceBinding = &ast.LetDecl{
+			Name:      &ast.Ident{Name: "iterator source", Location: ast.LocOf(node.Iterable)},
+			IsMutable: true, Value: node.Iterable, Location: ast.LocOf(node.Iterable),
+		}
+		expansion.Stmts = append(expansion.Stmts, sourceBinding)
+		receiver = &ast.Ident{Name: sourceBinding.Name.Name, Location: ast.LocOf(node.Iterable)}
+	}
 	resultName := fmt.Sprintf("$for.result.%d", node.ID())
 	result := &ast.LetDecl{
 		Name: &ast.Ident{Name: resultName, Location: location},
 		Value: &ast.CallExpr{Callee: &ast.SelectorExpr{
-			Expr: node.Iterable, Name: &ast.Ident{Name: "Next", Location: location}, Location: location,
+			Expr: receiver, Name: &ast.Ident{Name: "Next", Location: location}, Location: location,
 		}, Location: location}, Location: location,
 	}
 	stop := &ast.IfStmt{
@@ -762,7 +780,8 @@ func (c *checker) checkStructuralIteration(scope *symbols.Scope, node *ast.ForSt
 		NodeIDHolder: node.NodeIDHolder,
 		Body:         &ast.BlockStmt{Stmts: []ast.Stmt{result, stop, &body}, Location: location}, Location: location,
 	}
-	ast.Inspect(checked, func(generated ast.Node) bool {
+	expansion.Stmts = append(expansion.Stmts, checked)
+	ast.Inspect(expansion, func(generated ast.Node) bool {
 		if generated == nil {
 			return false
 		}
@@ -772,7 +791,18 @@ func (c *checker) checkStructuralIteration(scope *symbols.Scope, node *ast.ForSt
 		return true
 	})
 	bodyScope := c.module.Bindings.BlockScopes[node.Body.ID()]
-	iterationScope := bodyScope.InsertParent(scope)
+	sourceScope := symbols.NewScope(scope)
+	c.module.Bindings.BlockScopes[expansion.ID()] = sourceScope
+	iterationScope := bodyScope.InsertParent(sourceScope)
+	if sourceBinding != nil {
+		sourceSymbol := symbols.New(sourceBinding.Name.Name, symbols.SymbolVar, sourceBinding, ast.LocOf(node.Iterable))
+		sourceSymbol.Used = true
+		if err := sourceScope.Declare(sourceSymbol); err != nil {
+			panic(err)
+		}
+		c.module.Bindings.NodeSymbols[sourceBinding.Name.ID()] = sourceSymbol
+		c.module.Bindings.NodeSymbols[receiver.ID()] = sourceSymbol
+	}
 	c.module.Bindings.BlockScopes[checked.Body.ID()] = iterationScope
 	c.module.Bindings.BlockScopes[stop.Then.ID()] = symbols.NewScope(iterationScope)
 	resultSymbol := symbols.New(resultName, symbols.SymbolVar, result, location)
@@ -785,7 +815,7 @@ func (c *checker) checkStructuralIteration(scope *symbols.Scope, node *ast.ForSt
 	c.module.Bindings.NodeSymbols[item.Value.ID()] = resultSymbol
 	itemSymbol := c.module.Bindings.NodeSymbols[node.Value.ID()]
 	itemSymbol.ASTNode = item
-	c.module.Typechecking.CheckedIterations[node.ID()] = checked
+	c.module.Typechecking.CheckedIterations[node.ID()] = expansion
 	return true
 }
 

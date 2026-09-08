@@ -68,7 +68,11 @@ fn main() {
 	if err := module.CFG.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	for id, loop := range module.Typechecking.CheckedIterations {
+	for id, expansion := range module.Typechecking.CheckedIterations {
+		loop := expansion.Stmts[len(expansion.Stmts)-1].(*ast.ForStmt)
+		if module.TypedASTNodes[expansion.ID()] != expansion {
+			t.Fatal("source scope not indexed")
+		}
 		if module.TypedASTNodes[id] != loop || loop.Iterable != nil || loop.Cond != nil {
 			t.Fatalf("checked loop not indexed: %#v", loop)
 		}
@@ -86,7 +90,7 @@ fn main() {
 		if got := typeinfo.TypeText(module.Bindings.NodeSymbols[item.Name.ID()].Type); got != "i32" {
 			t.Fatalf("item type = %s", got)
 		}
-		ast.Inspect(loop, func(node ast.Node) bool {
+		ast.Inspect(expansion, func(node ast.Node) bool {
 			if node != nil && module.TypedASTNodes[node.ID()] == nil {
 				t.Errorf("generated node %T/%d not indexed", node, node.ID())
 			}

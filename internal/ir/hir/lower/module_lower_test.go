@@ -71,8 +71,8 @@ fn main() {
 	var loop *hir.For
 	for _, fn := range out.Funcs {
 		for _, stmt := range fn.Body.Stmts {
-			if candidate, ok := stmt.(*hir.For); ok {
-				loop = candidate
+			if expansion, ok := stmt.(*hir.Block); ok {
+				loop, _ = expansion.Stmts[len(expansion.Stmts)-1].(*hir.For)
 			}
 		}
 	}

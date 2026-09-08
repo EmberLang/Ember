@@ -103,6 +103,42 @@ func TestStructuralIterationUsesOrdinaryCallGuards(t *testing.T) {
 	}
 }
 
+func TestIteratorFactorySourceCleanup(t *testing.T) {
+	for _, body := range []string{"", "continue;", "break;", "return;"} {
+		t.Run(body, func(t *testing.T) {
+			result := checkOwnershipSource(t, `struct Cursor { held: *i32, value: i32 }
+fn Make() -> Cursor { return Cursor.{ held = alloc(1), value = 0 }; }
+fn (self: &mut Cursor) Next() -> ?i32 { return none; }
+fn main() { for item in Make() { `+body+` } }`)
+			if result.HasErrors() {
+				t.Fatalf("unexpected diagnostics:\n%s", result.EmitAllToString())
+			}
+			fn := result.module.AST.Stmts[3].(*ast.FnDecl)
+			sourceLoop := fn.Body.Stmts[0].(*ast.ForStmt)
+			expansion := result.module.Typechecking.CheckedIterations[sourceLoop.ID()]
+			binding := expansion.Stmts[0].(*ast.LetDecl)
+			owner := result.module.Bindings.NodeSymbols[binding.Name.ID()]
+			graph := result.module.CFG.Function(ir.NodeID(fn.ID()))
+			plan := cleanupPlanForFunction(t, result, fn)
+			exit := scopeExitSiteID(t, graph, expansion.ID())
+			if got := plan.AfterScope[exit]; !slices.Equal(got, []symbols.SymbolID{owner.ID}) {
+				t.Fatalf("source exit cleanup = %v, want [%d]", got, owner.ID)
+			}
+			for site, drops := range plan.AfterScope {
+				if site != exit && slices.Contains(drops, owner.ID) {
+					t.Fatalf("source dropped at another scope, including possible backedge: %v", site)
+				}
+			}
+			if body == "return;" {
+				ret := sourceLoop.Body.Stmts[0].(*ast.ReturnStmt)
+				if got := plan.BeforeReturn[ir.NodeID(ret.ID())]; !slices.Equal(got, []symbols.SymbolID{owner.ID}) {
+					t.Fatalf("return cleanup = %v, want [%d]", got, owner.ID)
+				}
+			}
+		})
+	}
+}
+
 func inspectFunctionAnalysis(t *testing.T, result *ownershipResult, name string) *analyzer {
 	t.Helper()
 	sym, found := result.module.ModuleScope.Lookup(name)

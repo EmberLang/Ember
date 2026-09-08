@@ -22,7 +22,9 @@ func TestStructuralIterationRecognition(t *testing.T) {
 		{name: "extra default", method: "fn (self: &Cursor) Next(value: i32 = 0) -> ?i32 { return value; }", diagnostic: "cannot take arguments in a for loop", hint: "parameters with defaults are not supported either"},
 		{name: "index", method: "fn (self: &Cursor) Next() -> ?i32 { return none; }", header: "index, item in cursor", diagnostic: "provide an item, not an index", hint: "maintain a separate counter"},
 		{name: "immutable", method: "fn (self: &mut Cursor) Next() -> ?i32 { return none; }", binding: "let cursor = Cursor.{};", diagnostic: "mutable"},
-		{name: "temporary deferred", method: "fn (self: &mut Cursor) Next() -> ?i32 { return none; }", header: "item in Cursor.{}", diagnostic: "stored in a local variable", hint: "use `let mut` if `Next` changes it"},
+		{name: "temporary literal", method: "fn (self: &mut Cursor) Next() -> ?i32 { return none; }", header: "item in Cursor.{}"},
+		{name: "temporary factory", method: "fn (self: &mut Cursor) Next() -> ?i32 { return none; } fn Make() -> Cursor { return Cursor.{}; }", header: "item in Make()"},
+		{name: "reference deferred", method: "fn (self: &mut Cursor) Next() -> ?i32 { return none; }", binding: "let mut original = Cursor.{}; let cursor = &mut original;", diagnostic: "source is not supported yet", hint: "call `Next()` explicitly"},
 		{name: "nested optional deferred", method: "fn (self: &Cursor) Next() -> ? ?i32 { return none; }", diagnostic: "are not supported yet", hint: "call `Next()` explicitly in a loop"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

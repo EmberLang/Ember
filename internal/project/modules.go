@@ -124,7 +124,7 @@ func (m *Module) RebuildTypedASTIndex() {
 		if sourceLoop, ok := node.(*ast.ForStmt); ok {
 			// An outer expansion still contains original nested loops. Do not
 			// overwrite their checked trees depending on map traversal order.
-			if checked := m.Typechecking.CheckedIterations[sourceLoop.ID()]; checked != nil && checked != sourceLoop {
+			if sourceLoop.Iterable != nil && m.Typechecking.CheckedIterations[sourceLoop.ID()] != nil {
 				return false
 			}
 		}

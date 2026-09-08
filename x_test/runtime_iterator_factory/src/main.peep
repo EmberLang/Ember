@@ -1,0 +1,73 @@
+struct Cursor {
+    value: i32,
+    limit: i32,
+    held: *i32
+}
+
+fn (self: &mut Cursor) Next() -> ?i32 {
+    if self.value >= self.limit { return none; }
+    let value = self.value;
+    self.value = self.value + 1;
+    return value;
+}
+
+struct Counts { made: i32, requested: i32 }
+
+fn Make(calls: &mut Counts, limit: i32) -> Cursor {
+    calls.made = calls.made + 1;
+    calls.requested = calls.requested + limit;
+    return Cursor.{ value = 0, limit = limit, held = alloc(7) };
+}
+
+fn First(calls: &mut Counts) -> i32 {
+    for item in Make(calls, 3) { return item + 10; }
+    return -1;
+}
+
+fn NestedReturn(calls: &mut Counts) -> i32 {
+    for left in Make(calls, 2) {
+        for right in Make(calls, 2) { return left + right; }
+    }
+    return -1;
+}
+
+fn main() -> i32 {
+    let mut calls = Counts.{ made = 0, requested = 0 };
+    let mut total: i32 = 0;
+    for item in Make(&mut calls, 4) {
+        if calls.made != 1 { return 1; }
+        if item == 1 { continue; }
+        total = total + item;
+    }
+    if total != 5 || calls.made != 1 { return 2; }
+
+    for item in Make(&mut calls, 0) { return 3; }
+    if calls.made != 2 { return 4; }
+
+    for item in Make(&mut calls, 4) { break; }
+    if calls.made != 3 { return 5; }
+    if First(&mut calls) != 10 || calls.made != 4 { return 6; }
+
+    let mut pairs: i32 = 0;
+    for left in Make(&mut calls, 2) {
+        for right in Make(&mut calls, 3) {
+            if right == 1 { continue; }
+            pairs = pairs + left + right;
+        }
+    }
+    if pairs != 6 || calls.made != 7 { return 7; }
+    if NestedReturn(&mut calls) != 0 || calls.made != 9 { return 8; }
+
+    let mut literalTotal: i32 = 0;
+    for item in Cursor.{ value = 1, limit = 3, held = alloc(8) } {
+        literalTotal = literalTotal + item;
+    }
+    if literalTotal != 3 { return 9; }
+
+    let mut local = Make(&mut calls, 2);
+    for item in local { break; }
+    if local.value != 1 { return 10; }
+    for item in local { total = total + item; }
+    if local.value != 2 || total != 6 || calls.made != 10 || calls.requested != 25 { return 11; }
+    return 0;
+}

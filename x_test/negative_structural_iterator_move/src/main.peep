@@ -5,7 +5,10 @@ struct Cursor { value: i32, limit: i32 }
 fn (self: &mut Cursor) Next() -> ?i32 { return none; }
 fn Consume(cursor: Cursor) {}
 
+fn Make() -> Consumed { return Consumed.{ value = 0, limit = 2 }; }
+
 fn main() {
+    for item in Make() {}
     let consumed = Consumed.{ value = 0, limit = 2 };
     for item in consumed {}
     let mut moved = Cursor.{ value = 0, limit = 2 };

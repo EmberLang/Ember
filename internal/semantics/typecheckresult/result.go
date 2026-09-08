@@ -150,7 +150,9 @@ type Result struct {
 	// statements before CFG/flow/effects/ownership. These loops have no numeric
 	// cursor and never appear in the builtin ForIterations table. Source syntax
 	// stays unchanged; CFG, typed-node indexing and HIR consume this same tree.
-	CheckedIterations map[ast.NodeID]*ast.ForStmt
+	// Each block owns any temporary source binding and ends with the checked
+	// loop, which retains the source loop's ID. The block has its own scope ID.
+	CheckedIterations map[ast.NodeID]*ast.BlockStmt
 	ExprTypes         map[ast.NodeID]typeinfo.Type
 	// ValueUses classifies every ownership-relevant value use, keyed by the
 	// used expression's node ID. Reference parameters publish UseRead; the
@@ -179,7 +181,7 @@ func New() *Result {
 		CaseTests:                make(map[ast.NodeID]CaseTest),
 		Matches:                  make(map[ast.NodeID]Match),
 		ForIterations:            make(map[ast.NodeID]ForIteration),
-		CheckedIterations:        make(map[ast.NodeID]*ast.ForStmt),
+		CheckedIterations:        make(map[ast.NodeID]*ast.BlockStmt),
 		ExprTypes:                make(map[ast.NodeID]typeinfo.Type),
 		ValueUses:                make(map[ast.NodeID]typeinfo.UseKind),
 		ReferenceArguments:       make(map[ast.NodeID]bool),
