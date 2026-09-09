@@ -71,13 +71,13 @@ func analyzeInitializationSource(t *testing.T, source string) (*functionResult, 
 	return result, diag, module
 }
 
-func TestStructuralIterationDoesNotGuaranteeEntry(t *testing.T) {
+func TestCallIterationDoesNotGuaranteeEntry(t *testing.T) {
 	_, diag, _ := analyzeInitializationSource(t, `struct Cursor {}
 fn (self: &Cursor) Next() -> ?i32 { return none; }
 fn choose() -> i32 {
 	let cursor = Cursor.{};
 	let mut result: i32;
-	for item in cursor { result = item; }
+	for item in cursor.Next() { result = item; }
 	return result;
 }`)
 	if !diag.HasErrors() || !strings.Contains(diag.EmitAllToString(), "used before it's initialized") {

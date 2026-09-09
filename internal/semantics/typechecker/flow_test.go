@@ -48,15 +48,15 @@ func checkFlowSource(t *testing.T, src string) (*project.Module, *diagnostics.Di
 	return module, diag
 }
 
-func TestStructuralIterationPublishesCheckedOperations(t *testing.T) {
+func TestCallIterationPublishesCheckedOperations(t *testing.T) {
 	module, diag := checkFlowSource(t, `struct Cursor { value: i32, limit: i32 }
 fn (self: &mut Cursor) Next() -> ?i32 { return none; }
 fn main() {
 	let mut cursor = Cursor.{ value = 0, limit = 3 };
-	for cursor in cursor {
+	for cursor in cursor.Next() {
 		let item: i32 = cursor;
 		let mut inner = Cursor.{ value = item, limit = 3 };
-		for value in inner { if value == 1 { continue; } }
+		for value in inner.Next() { if value == 1 { continue; } }
 	}
 }`)
 	if diag.HasErrors() {

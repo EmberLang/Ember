@@ -137,12 +137,12 @@ func describe(op effect.Op) string {
 	return "unknown"
 }
 
-func TestStructuralIterationPublishesOrdinaryReceiverCall(t *testing.T) {
+func TestCallIterationPublishesOrdinaryReceiverCall(t *testing.T) {
 	result, module := buildEffects(t, `struct Cursor {}
 fn (self: &mut Cursor) Next() -> ?i32 { return none; }
 fn probe() {
 	let mut cursor = Cursor.{};
-	for item in cursor { if item == 1 { continue; } }
+	for item in cursor.Next() { if item == 1 { continue; } }
 }`)
 	calls, ends, borrows := 0, 0, 0
 	for _, op := range publishedOps(t, result, module, "probe") {

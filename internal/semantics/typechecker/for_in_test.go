@@ -10,22 +10,27 @@ import (
 	"compiler/internal/target"
 )
 
-func TestStructuralIterationRecognition(t *testing.T) {
+func TestCallIterationRecognition(t *testing.T) {
 	for _, test := range []struct {
 		name, method, binding, header, diagnostic, hint string
 	}{
 		{name: "mutable scalar", method: "fn (self: &mut Cursor) Next() -> ?i32 { return none; }"},
 		{name: "shared bool", method: "fn (self: &Cursor) Next() -> ?bool { return none; }", binding: "let cursor = Cursor.{};"},
-		{name: "no method", diagnostic: "cannot iterate over", hint: "method names are case-sensitive"},
-		{name: "lowercase is not protocol", method: "fn (self: &Cursor) next() -> ?i32 { return none; }", diagnostic: "cannot iterate over"},
+		{name: "bare object", method: "fn (self: &Cursor) Next() -> ?i32 { return none; }", header: "item in cursor", diagnostic: "cannot iterate over", hint: "explicit call returning an optional item"},
+		{name: "bare optional", binding: "let cursor: ?i32 = none;", header: "item in cursor", diagnostic: "cannot iterate over", hint: "a bare optional value is not a producer"},
+		{name: "lowercase method", method: "fn (self: &Cursor) next() -> ?i32 { return none; }", header: "item in cursor.next()"},
+		{name: "arbitrary method", method: "fn (self: &Cursor) Take(value: i32) -> ?i32 { return value; }", header: "item in cursor.Take(3)"},
+		{name: "free call", method: "fn Produce() -> ?i32 { return none; }", header: "item in Produce()"},
+		{name: "pipe call", method: "fn Produce(cursor: &Cursor) -> ?i32 { return none; }", header: "item in cursor |> Produce()"},
 		{name: "wrong return", method: "fn (self: &Cursor) Next() -> i32 { return 0; }", diagnostic: "must return an optional item", hint: "return an item to continue, or `none` to end the loop"},
-		{name: "extra default", method: "fn (self: &Cursor) Next(value: i32 = 0) -> ?i32 { return value; }", diagnostic: "cannot take arguments in a for loop", hint: "parameters with defaults are not supported either"},
-		{name: "index", method: "fn (self: &Cursor) Next() -> ?i32 { return none; }", header: "index, item in cursor", diagnostic: "provide an item, not an index", hint: "maintain a separate counter"},
+		{name: "default argument", method: "fn (self: &Cursor) Next(value: i32 = 0) -> ?i32 { return value; }"},
+		{name: "invalid argument", method: "fn (self: &Cursor) Next(value: bool) -> ?i32 { return none; }", header: "item in cursor.Next(1)", diagnostic: "bool"},
+		{name: "index", method: "fn (self: &Cursor) Next() -> ?i32 { return none; }", header: "index, item in cursor.Next()", diagnostic: "provide an item, not an index", hint: "maintain a separate counter"},
 		{name: "immutable", method: "fn (self: &mut Cursor) Next() -> ?i32 { return none; }", binding: "let cursor = Cursor.{};", diagnostic: "mutable"},
-		{name: "temporary literal", method: "fn (self: &mut Cursor) Next() -> ?i32 { return none; }", header: "item in Cursor.{}"},
-		{name: "temporary factory", method: "fn (self: &mut Cursor) Next() -> ?i32 { return none; } fn Make() -> Cursor { return Cursor.{}; }", header: "item in Make()"},
+		{name: "bare literal", header: "item in Cursor.{}", diagnostic: "cannot iterate over"},
+		{name: "object factory", method: "fn (self: &mut Cursor) Next() -> ?i32 { return none; } fn Make() -> Cursor { return Cursor.{}; }", header: "item in Make()", diagnostic: "must return an optional item"},
 		{name: "reference source", method: "fn (self: &mut Cursor) Next() -> ?i32 { return none; }", binding: "let mut original = Cursor.{}; let cursor = &mut original;"},
-		{name: "nested optional item", method: "fn (self: &Cursor) Next() -> ? ?i32 { return none; }"},
+		{name: "function value is not a call", method: "fn Produce() -> ?i32 { return none; }", header: "item in Produce", diagnostic: "cannot iterate over"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			binding, header := test.binding, test.header
@@ -33,7 +38,7 @@ func TestStructuralIterationRecognition(t *testing.T) {
 				binding = "let mut cursor = Cursor.{};"
 			}
 			if header == "" {
-				header = "item in cursor"
+				header = "item in cursor.Next()"
 			}
 			module, diag := checkTypeModule(t, "struct Cursor {}\n"+test.method+"\nfn main() { "+binding+" for "+header+" {} }")
 			if test.diagnostic == "" {
@@ -50,7 +55,47 @@ func TestStructuralIterationRecognition(t *testing.T) {
 	}
 }
 
-func TestStructuralIterationMatchesExplicitOperations(t *testing.T) {
+func TestCallIterationReusesCheckedProducerEvidence(t *testing.T) {
+	module, diag := checkTypeModule(t, `iface Reader { fn (&Self) read() -> i32 }
+struct Counter { value: i32 }
+fn (self: &Counter) read() -> i32 { return self.value; }
+fn Produce(value: &Counter, reader: &Reader = value) -> ?i32 { return reader.read(); }
+fn main() {
+	let counter = Counter.{ value = 1 };
+	for item in Produce(&counter) {}
+}`)
+	if diag.HasErrors() {
+		t.Fatalf("unexpected diagnostics:\n%s", diag.EmitAllToString())
+	}
+	var producer *ast.CallExpr
+	for _, stmt := range module.AST.Stmts {
+		ast.Inspect(stmt, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if ok && ast.ExprText(call.Callee) == "Produce" {
+				producer = call
+			}
+			return producer == nil
+		})
+		if producer != nil {
+			break
+		}
+	}
+	if producer == nil {
+		t.Fatal("producer call not found")
+	}
+	effective := module.Typechecking.EffectiveCallArguments[producer.ID()]
+	if len(effective) != 2 {
+		t.Fatalf("effective arguments = %d, want 2", len(effective))
+	}
+	if got := len(module.Typechecking.InterfaceImplementations); got != 2 {
+		t.Fatalf("interface evidence entries = %d, want declaration default plus one call expansion", got)
+	}
+	if implementations := module.Typechecking.InterfaceImplementations[effective[1].ID()]; len(implementations) != 1 {
+		t.Fatalf("effective default evidence = %#v, want one implementation", implementations)
+	}
+}
+
+func TestCallIterationMatchesExplicitOperations(t *testing.T) {
 	for _, test := range []struct {
 		name, source, implicit, explicit string
 	}{
@@ -63,7 +108,7 @@ fn main() {
 	let mut holder = Holder.{ cursor = Cursor.{} };
 	__LOOP__
 }`,
-			implicit: "for item in holder.cursor { let value: i32 = item; }",
+			implicit: "for item in holder.cursor.Next() { let value: i32 = item; }",
 			explicit: "for { let result = holder.cursor.Next(); if result == none { break; } let item: i32 = result; let value: i32 = item; }",
 		},
 		{
@@ -75,8 +120,8 @@ fn main() {
 	let index: i32 = 0;
 	__LOOP__
 }`,
-			implicit: "for item in cursors[index] { let value: i32 = item; }",
-			explicit: "let source = &mut cursors[index]; for { let result = source.Next(); if result == none { break; } let item: i32 = result; let value: i32 = item; }",
+			implicit: "for item in cursors[index].Next() { let value: i32 = item; }",
+			explicit: "for { let result = cursors[index].Next(); if result == none { break; } let item: i32 = result; let value: i32 = item; }",
 		},
 		{
 			name: "reference parameter source",
@@ -84,7 +129,7 @@ fn main() {
 fn (self: &mut Cursor) Next() -> ?i32 { return none; }
 fn Walk(cursor: &mut Cursor) { __LOOP__ }
 fn main() { let mut cursor = Cursor.{}; Walk(&mut cursor); }`,
-			implicit: "for item in cursor { let value: i32 = item; }",
+			implicit: "for item in cursor.Next() { let value: i32 = item; }",
 			explicit: "for { let result = cursor.Next(); if result == none { break; } let item: i32 = result; let value: i32 = item; }",
 		},
 		{
@@ -93,7 +138,7 @@ fn main() { let mut cursor = Cursor.{}; Walk(&mut cursor); }`,
 struct Cursor {}
 fn (self: &Cursor) Next() -> ?Item { return none; }
 fn main() { let cursor = Cursor.{}; __LOOP__ }`,
-			implicit: "for item in cursor { let value: i32 = item.value; }",
+			implicit: "for item in cursor.Next() { let value: i32 = item.value; }",
 			explicit: "for { let result = cursor.Next(); if result == none { break; } let item: Item = result; let value: i32 = item.value; }",
 		},
 		{
@@ -101,23 +146,15 @@ fn main() { let cursor = Cursor.{}; __LOOP__ }`,
 			source: `struct Cursor {}
 fn (self: &Cursor) Next() -> ?*i32 { return none; }
 fn main() { let cursor = Cursor.{}; __LOOP__ }`,
-			implicit: "for item in cursor { free(item); }",
+			implicit: "for item in cursor.Next() { free(item); }",
 			explicit: "for { let result = cursor.Next(); if result == none { break; } let item: *i32 = result; free(item); }",
-		},
-		{
-			name: "nested optional item",
-			source: `struct Cursor {}
-fn (self: &Cursor) Next() -> ? ?i32 { return none; }
-fn main() { let cursor = Cursor.{}; __LOOP__ }`,
-			implicit: "for item in cursor { if item != none { let value: i32 = item; } }",
-			explicit: "for { let result = cursor.Next(); if result == none { break; } if result != none { let value: i32 = result; } }",
 		},
 		{
 			name: "reference item",
 			source: `struct Cursor { value: i32 }
 fn (self: &mut Cursor) Next() -> ?&i32 from self { return none; }
 fn main() { let mut cursor = Cursor.{ value = 1 }; __LOOP__ }`,
-			implicit: "for item in cursor { let value: &i32 = item; }",
+			implicit: "for item in cursor.Next() { let value: &i32 = item; }",
 			explicit: "for { let result = cursor.Next(); if result == none { break; } let item: &i32 = result; let value: &i32 = item; }",
 		},
 	} {
@@ -143,16 +180,27 @@ fn main() { let mut cursor = Cursor.{ value = 1 }; __LOOP__ }`,
 	}
 }
 
-func TestRejectedStructuralIterationStillChecksBody(t *testing.T) {
-	_, diag := checkTypeModule(t, `struct Cursor {}
+func TestRejectedCallIterationStillChecksBody(t *testing.T) {
+	for _, test := range []struct{ header, diagnostic string }{
+		{"item in cursor.Next()", "must return an optional item"},
+		{"item in cursor", "cannot iterate over"},
+		{"index, item in Produce(1)", "provide an item, not an index"},
+		{"item in Produce(true)", "cannot implicitly convert bool to i32"},
+		{"item in Missing()", "Missing"},
+	} {
+		t.Run(test.header, func(t *testing.T) {
+			_, diag := checkTypeModule(t, `struct Cursor {}
 fn (self: &Cursor) Next() -> i32 { return 0; }
+fn Produce(value: i32) -> ?i32 { return none; }
 fn main() {
 	let cursor = Cursor.{};
-	for item in cursor { let invalid: bool = 1; }
+	for `+test.header+` { let invalid: bool = 1; }
 }`)
-	text := diag.EmitAllToString()
-	if !strings.Contains(text, "must return an optional item") || !strings.Contains(text, "cannot be used as bool") {
-		t.Fatalf("expected header and body diagnostics:\n%s", text)
+			text := diag.EmitAllToString()
+			if !strings.Contains(text, test.diagnostic) || !strings.Contains(text, "cannot be used as bool") {
+				t.Fatalf("expected header and body diagnostics:\n%s", text)
+			}
+		})
 	}
 }
 

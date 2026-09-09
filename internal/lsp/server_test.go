@@ -493,7 +493,7 @@ fn inspect(value: result::Alias) {
 	}
 }
 
-func TestHoverShowsStructuralIteratorItemType(t *testing.T) {
+func TestHoverShowsCallIteratorItemType(t *testing.T) {
 	root := t.TempDir()
 	filePath := filepath.Join(root, "main"+peeper.SourceExt)
 	src := `struct Item { value: i32 }
@@ -501,7 +501,7 @@ struct Cursor {}
 fn (self: &Cursor) Next() -> ?Item { return none; }
 fn main() {
 	let cursor = Cursor.{};
-	for item in cursor { return __CURSOR__item.value; }
+	for item in cursor.Next() { return __CURSOR__item.value; }
 }`
 	state := NewServerState()
 	state.RootDir = root

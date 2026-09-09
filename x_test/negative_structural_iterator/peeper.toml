@@ -4,5 +4,5 @@ build = "program"
 [test]
 mode = "check"
 outcome = "failure"
-stderr_contains = ["must return an optional item", "cannot take arguments in a for loop", "provide an item, not an index", "mutable", "cannot iterate over", "cannot be used as bool", "return type is i32", "parameters with defaults are not supported either", "maintain a separate counter", "iterate over the original struct value before passing it as an interface"]
+stderr_contains = ["must return an optional item", "provide an item, not an index", "mutable", "cannot iterate over", "cannot be used as bool", "maintain a separate counter", "explicit call returning an optional item", "a bare optional value is not a producer"]
 stderr_excludes = ["structural iteration", "local concrete cursor", "scalar items", "$for."]
